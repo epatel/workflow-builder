@@ -65,7 +65,7 @@ session:
 ```sh
 curl -X POST https://…/workflow/api/endpoints/<name> \
   -H "Authorization: Bearer <token>" -d '{"topic": "hi", "doc": "file contents"}'
-# -> {"run_id": 42, "status": "pending", "status_url": ".../api/endpoints/<name>/runs/42"}
+# -> {"run_id": 42, "status": "pending", "status_url": ".../api/endpoints/<name>/42"}
 
 # or multipart, with real (binary-safe) file parts:
 curl -X POST https://…/workflow/api/endpoints/<name> \
@@ -75,8 +75,8 @@ curl -X POST https://…/workflow/api/endpoints/<name> \
 Inputs are keyed by the workflow's inputs spec — a JSON object (a string for a `file` input is
 stored as `<key>.txt`) or `multipart/form-data` with file parts for `file` inputs. The run
 belongs to the workflow's owner. Poll
-`GET /api/endpoints/<name>/runs/<id>` (same token) for `{status, result, error, data}` — `data`
-lists the run's sandbox files, each downloadable at `…/runs/<id>/data/<item>`.
+`GET /api/endpoints/<name>/<id>` (same token) for `{status, result, error, data}` — `data`
+lists the run's sandbox files, each downloadable at `…/<name>/<id>/data/<item>`.
 
 ## Setup
 

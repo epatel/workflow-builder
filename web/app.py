@@ -814,12 +814,12 @@ async def trigger_endpoint(name: str, request: Request,
         conn.execute("UPDATE runs SET inputs=? WHERE id=?", (json.dumps(inputs), run_id))
         conn.commit()
         return {"run_id": run_id, "status": "pending",
-                "status_url": f"{_prefix(request)}/api/endpoints/{name}/runs/{run_id}"}
+                "status_url": f"{_prefix(request)}/api/endpoints/{name}/{run_id}"}
     finally:
         conn.close()
 
 
-@app.get("/api/endpoints/{name}/runs/{rid}")
+@app.get("/api/endpoints/{name}/{rid}")
 def endpoint_run_status(request: Request, name: str, rid: int,
                         authorization: str | None = Header(None)):
     """Poll a run started via this endpoint: status/result/error, plus the sandbox files
@@ -838,12 +838,12 @@ def endpoint_run_status(request: Request, name: str, rid: int,
                 data = [f["path"] for f in resp.json()["files"]]
         except Exception:
             pass  # agent host unreachable — status still useful without the file list
-    base = f"{_prefix(request)}/api/endpoints/{name}/runs/{rid}/data/"
+    base = f"{_prefix(request)}/api/endpoints/{name}/{rid}/data/"
     return {"run_id": rid, "status": r["status"], "result": r["result"], "error": r["error"],
             "data": [{"item": p, "url": base + p} for p in data]}
 
 
-@app.get("/api/endpoints/{name}/runs/{rid}/data/{path:path}")
+@app.get("/api/endpoints/{name}/{rid}/data/{path:path}")
 def endpoint_run_data(name: str, rid: int, path: str,
                       authorization: str | None = Header(None)):
     """Download one sandbox file of a run started via this endpoint."""

@@ -13,9 +13,9 @@ page — token is editable or regenerable at a click). `POST /api/endpoints/{nam
 creates a pending run owned by the **workflow's owner**; inputs come as a JSON object (a string
 for a `file` input is saved as `uploads/<run_id>/<key>.txt`) or as `multipart/form-data` with real
 file parts for `file` inputs. Returns `{run_id, status, status_url}`.
-`GET /api/endpoints/{name}/runs/{rid}` polls `{status, result, error, data}` — `data` is the run's
+`GET /api/endpoints/{name}/{rid}` polls `{status, result, error, data}` — `data` is the run's
 sandbox file list (via the agent files proxy, empty if unreachable), each item downloadable at
-`GET …/runs/{rid}/data/{path}` (attachment semantics, so untrusted sandbox HTML never renders in
+`GET …/{name}/{rid}/data/{path}` (attachment semantics, so untrusted sandbox HTML never renders in
 our origin). Both GETs 404 runs that don't belong to the endpoint's workflow; auth failures and
 unknown endpoint names both return the same 401 so names can't be probed.
 

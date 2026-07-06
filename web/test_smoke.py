@@ -350,7 +350,7 @@ def test_endpoints():
                     json={"topic": "hi", "doc": "file body", "extra": "ignored"})
     assert r.status_code == 200 and r.json()["status"] == "pending"
     rid = r.json()["run_id"]
-    assert r.json()["status_url"].endswith(f"/api/endpoints/hooked-1/runs/{rid}")
+    assert r.json()["status_url"].endswith(f"/api/endpoints/hooked-1/{rid}")
     run = conn.execute("SELECT * FROM runs WHERE id=?", (rid,)).fetchone()
     inputs = json.loads(run["inputs"])
     assert run["status"] == "pending" and inputs["topic"] == "hi" and "extra" not in inputs
@@ -367,16 +367,16 @@ def test_endpoints():
     assert client.get(f"/api/runs/{brid}/files/shot.png", headers=AGENT).content == png
 
     # poll status with the endpoint token; agent host not configured -> data list empty
-    st = client.get(f"/api/endpoints/hooked-1/runs/{rid}", headers=hdr).json()
+    st = client.get(f"/api/endpoints/hooked-1/{rid}", headers=hdr).json()
     assert st["status"] == "pending" and st["data"] == []
     # a run of another workflow is invisible through this endpoint
     other = conn.execute("SELECT id FROM runs WHERE workflow_id!=? LIMIT 1", (wid,)).fetchone()
-    assert client.get(f"/api/endpoints/hooked-1/runs/{other['id']}", headers=hdr).status_code == 404
-    assert client.get(f"/api/endpoints/hooked-1/runs/{rid}",
+    assert client.get(f"/api/endpoints/hooked-1/{other['id']}", headers=hdr).status_code == 404
+    assert client.get(f"/api/endpoints/hooked-1/{rid}",
                       headers={"Authorization": "Bearer nope"}).status_code == 401
     # data fetch without an agent host configured -> 503, with bad token -> 401
-    assert client.get(f"/api/endpoints/hooked-1/runs/{rid}/data/out.txt", headers=hdr).status_code == 503
-    assert client.get(f"/api/endpoints/hooked-1/runs/{rid}/data/out.txt",
+    assert client.get(f"/api/endpoints/hooked-1/{rid}/data/out.txt", headers=hdr).status_code == 503
+    assert client.get(f"/api/endpoints/hooked-1/{rid}/data/out.txt",
                       headers={"Authorization": "Bearer nope"}).status_code == 401
 
     # delete: gone from the DB, calls now 401

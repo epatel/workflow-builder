@@ -35,7 +35,7 @@
      <span class="mono">…/data/&lt;item&gt;</span>.</p>
   {% for ep in endpoints %}
   <p class="mono">POST {{ api_prefix }}/api/endpoints/{{ ep.name }}<br>
-     GET&nbsp; {{ api_prefix }}/api/endpoints/{{ ep.name }}/runs/&lt;run_id&gt;[/data/&lt;item&gt;]</p>
+     GET&nbsp; {{ api_prefix }}/api/endpoints/{{ ep.name }}/&lt;run_id&gt;[/data/&lt;item&gt;]</p>
   <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ ep.id }}">
     <label>Bearer token</label>
     <input name="token" value="{{ ep.token }}" required>

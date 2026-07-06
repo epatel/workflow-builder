@@ -314,15 +314,11 @@ def test_endpoints():
     token = ep["token"]
     assert token in client.get(f"/workflows/{wid}").text  # shown to the owner
 
-    # token is editable, the generate button replaces it, empty is rejected
+    # token is editable, empty is rejected
     client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "my-own-secret"},
                 follow_redirects=False)
     assert conn.execute("SELECT token FROM endpoints WHERE id=?",
                         (ep["id"],)).fetchone()[0] == "my-own-secret"
-    client.post(f"/workflows/{wid}/endpoints/{ep['id']}",
-                data={"token": "ignored", "generate": "1"}, follow_redirects=False)
-    generated = conn.execute("SELECT token FROM endpoints WHERE id=?", (ep["id"],)).fetchone()[0]
-    assert generated not in ("my-own-secret", "ignored") and len(generated) > 20
     assert client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "  "},
                        follow_redirects=False).status_code == 400
     client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": token},

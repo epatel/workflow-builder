@@ -39,10 +39,10 @@
     <label>Bearer token</label>
     <input name="token" value="{{ ep.token }}" required>
     <p><button>Save token</button>
-       <button name="generate" value="1" formnovalidate class="secondary">Generate random</button></p>
+       <button type="button" class="secondary" onclick="genToken(this.form.token)">Generate random</button></p>
   </form>
   <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ ep.id }}/delete"
-        onsubmit="return confirm('Delete endpoint {{ ep.name }}?')">
+        data-confirm="Delete endpoint {{ ep.name }}?">
     <button class="danger">Delete endpoint</button>
   </form>
   <hr style="border:none;border-top:1px solid var(--border);margin:1.1rem 0">
@@ -53,10 +53,18 @@
     <label>Bearer token (leave empty to generate)</label>
     <input name="token">
     <p><button>Add endpoint</button>
+       <button type="button" class="secondary" onclick="genToken(this.form.token)">Generate random</button>
        <button type="button" class="secondary"
                onclick="document.getElementById('ep-dialog').close()">Close</button></p>
   </form>
 </dialog>
+
+<script>
+function genToken(input){
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+  input.value = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => chars[b & 63]).join("");
+}
+</script>
 {% endif %}
 
 <h2>Your recent runs</h2>

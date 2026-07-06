@@ -714,9 +714,9 @@ def create_endpoint(request: Request, wid: int, name: str = Form(...), token: st
 
 @app.post("/workflows/{wid}/endpoints/{eid}")
 def update_endpoint(request: Request, wid: int, eid: int, token: str = Form(""),
-                    generate: str = Form(""), user=Depends(require_role("editor"))):
-    """Save an edited bearer token, or (generate button) replace it with a random one."""
-    token = secrets.token_urlsafe(32) if generate else token.strip()
+                    user=Depends(require_role("editor"))):
+    """Save an edited bearer token (random generation happens client-side)."""
+    token = token.strip()
     if not token:
         raise HTTPException(400, "Token cannot be empty.")
     conn = connect()

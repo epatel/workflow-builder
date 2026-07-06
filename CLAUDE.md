@@ -8,6 +8,12 @@ and a logged-in Claude Code CLI.
 
 Read `@project-plan.md` first — it holds the shared goal, settled decisions, and current state.
 
+## UI conventions
+
+Never use browser-default popups — no `alert()`, `confirm()`, `prompt()`. Use a styled `<dialog>`
+(see `workflow_view.html`); for confirmations, put `data-confirm="message"` on the form — the app
+confirm dialog in `base.html` intercepts the submit.
+
 ## Deploy
 
 Live at https://rpi6.memention.net/workflow. Both services run as detached `screen` sessions

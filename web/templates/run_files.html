@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Files — run #{{ rid }}</h1>
+<p><a href="runs/{{ rid }}">← back to run</a></p>
+{% if error %}<p class="msg">{{ error }}</p>{% endif %}
+{% if files %}
+<table>
+  <tr><th>File</th><th>Size</th><th></th></tr>
+  {% for f in files %}
+  <tr>
+    <td><code>{{ f.path }}</code></td>
+    <td>{{ f.size }} B</td>
+    <td>
+      <a href="runs/{{ rid }}/view/{{ f.path }}">view</a> ·
+      <a href="runs/{{ rid }}/files/{{ f.path }}?dl=1">download</a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% elif not error %}
+<p>No files in this run's sandbox.</p>
+{% endif %}
+{% endblock %}

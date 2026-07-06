@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Account · Workflow Builder{% endblock %}
+{% block content %}
+<h1>Account</h1>
+{% if saved %}<p class="msg">Saved.</p>{% endif %}
+
+<div class="card">
+  <p><strong>{{ user.name }}</strong> &lt;{{ user.email }}&gt; · {{ user.role }}</p>
+</div>
+
+<form method="post" action="account">
+  <label>Default model — used by any workflow set to "Account default"</label>
+  <select name="default_model">
+    {% for val, lbl in models %}
+    <option value="{{ val }}" {{ 'selected' if user.default_model == val }}>{{ lbl }}</option>
+    {% endfor %}
+  </select>
+  <p style="color:var(--muted);font-size:.85rem">"Host default" leaves the choice to the agent host.</p>
+
+  <p><button>Save</button> <a class="btn secondary" href="workflows">Cancel</a></p>
+</form>
+{% endblock %}

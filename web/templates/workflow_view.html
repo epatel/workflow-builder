@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ wf.name }}</h1>
+<p style="color:var(--muted)">{{ set_names|join(', ') if set_names else 'private' }}
+   · model: {{ wf.model or 'account default' }}</p>
+
+<h2>Run it</h2>
+<form method="post" action="workflows/{{ wf.id }}/run" enctype="multipart/form-data">
+  {% for f in inputs %}
+    <label>{{ f.label or f.key }}</label>
+    {% if f.type == 'file' %}<input type="file" name="{{ f.key }}">
+    {% elif f.type == 'textarea' %}<textarea name="{{ f.key }}"></textarea>
+    {% else %}<input name="{{ f.key }}">{% endif %}
+  {% endfor %}
+  <p><button>Start workflow</button></p>
+</form>
+
+<h2>Your recent runs</h2>
+<table>
+  <tr><th>#</th><th>Status</th><th>Started</th></tr>
+  {% for r in runs %}
+  <tr><td class="mono"><a href="runs/{{ r.id }}">#{{ r.id }}</a></td>
+      <td><span class="status st-{{ r.status }}">{{ r.status }}</span></td>
+      <td class="mono">{{ r.created_at }}</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="word-break:break-all">{{ fname }}</h1>
+<p>
+  <a href="runs/{{ rid }}/files">← files</a> ·
+  {% if is_html and kind == 'htmlrender' %}<a href="runs/{{ rid }}/view/{{ path }}">view as code</a> ·{% endif %}
+  {% if is_html and kind != 'htmlrender' %}<a href="runs/{{ rid }}/view/{{ path }}?render=1">render</a> ·{% endif %}
+  <a href="runs/{{ rid }}/files/{{ path }}" target="_blank">raw</a> ·
+  <a href="runs/{{ rid }}/files/{{ path }}?dl=1">download</a>
+</p>
+
+{% if kind == 'htmlrender' %}
+  <iframe sandbox srcdoc="{{ body|e }}"
+          style="width:100%;min-height:70vh;border:1px solid var(--border);border-radius:6px;background:#fff"></iframe>
+{% elif kind == 'image' %}
+  <img src="runs/{{ rid }}/files/{{ path }}" alt="{{ fname }}" style="max-width:100%;border:1px solid var(--border);border-radius:6px">
+{% elif kind == 'markdown' %}
+  <iframe id="mdframe" sandbox="allow-same-origin" srcdoc="{{ body|e }}"
+          style="width:100%;min-height:70vh;border:1px solid var(--border);border-radius:6px;background:var(--bg)"></iframe>
+  <script>
+  // Mirror the app's dark/light choice into the sandboxed markdown iframe.
+  // allow-same-origin (without allow-scripts) lets us set its theme; no JS runs inside it.
+  (function(){
+    const f = document.getElementById("mdframe");
+    const sync = () => { try { f.contentDocument.documentElement.dataset.theme =
+        document.documentElement.dataset.theme || "light"; } catch(e){} };
+    f.addEventListener("load", sync); sync();
+    new MutationObserver(sync).observe(document.documentElement,
+        {attributes:true, attributeFilter:["data-theme"]});
+  })();
+  </script>
+{% elif kind == 'code' %}
+  <style>{{ code_css|safe }}</style>
+  {{ body|safe }}
+{% elif kind == 'toolarge' %}
+  <p>File is too large to preview. <a href="runs/{{ rid }}/files/{{ path }}?dl=1">Download it</a>.</p>
+{% else %}
+  <p>Binary file — no inline preview. <a href="runs/{{ rid }}/files/{{ path }}?dl=1">Download it</a>.</p>
+{% endif %}
+{% endblock %}

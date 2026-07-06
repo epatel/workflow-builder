@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Run <span class="mono">#{{ run.id }}</span></h1>
+<p><span id="status" class="status st-{{ run.status }}">{{ run.status }}</span> · <a href="runs/{{ run.id }}/files">Browse files</a></p>
+
+<div class="term">
+  <div class="term-head">agent log — run #{{ run.id }}</div>
+  <div id="log" class="term-body">
+    {% for l in logs %}<div><span style="color:var(--muted)">{{ l.ts }}</span>  {{ l.message }}</div>{% endfor %}
+  </div>
+</div>
+
+<div id="result">
+  {% if run.result %}
+  <h2>Result</h2>
+  <iframe id="mdframe" sandbox="allow-same-origin" srcdoc="{{ result_html|e }}"
+          style="width:100%;min-height:40vh;border:1px solid var(--border);border-radius:6px;background:var(--bg)"></iframe>
+  {% endif %}
+  {% if run.error %}<p class="err">{{ run.error }}</p>{% endif %}
+</div>
+<script>
+// ponytail: poll until terminal; SSE only if this feels laggy
+function renderLog(logs){
+  const el = document.getElementById("log");
+  el.innerHTML = "";
+  for (const l of logs){
+    const d = document.createElement("div");
+    const t = document.createElement("span");
+    t.style.color = "var(--muted)"; t.textContent = l.ts + "  ";
+    d.appendChild(t); d.appendChild(document.createTextNode(l.message));
+    el.appendChild(d);
+  }
+  el.scrollTop = el.scrollHeight;
+}
+async function poll(){
+  const r = await fetch("runs/{{ run.id }}/status");
+  const d = await r.json();
+  const st = document.getElementById("status");
+  st.textContent = d.status;
+  st.className = "status st-" + d.status;
+  renderLog(d.logs || []);
+  if (d.status === "done" || d.status === "error") {
+    location.reload();  // let the server render the markdown result safely
+    return;
+  }
+  setTimeout(poll, 2000);
+}
+// Mirror the app's dark/light choice into the sandboxed markdown iframe (no JS runs inside it).
+(function(){
+  const f = document.getElementById("mdframe");
+  if (!f) return;
+  const sync = () => { try { f.contentDocument.documentElement.dataset.theme =
+      document.documentElement.dataset.theme || "light"; } catch(e){} };
+  f.addEventListener("load", sync); sync();
+  new MutationObserver(sync).observe(document.documentElement,
+      {attributes:true, attributeFilter:["data-theme"]});
+})();
+{% if run.status in ('pending','running') %}poll();{% endif %}
+</script>
+{% endblock %}

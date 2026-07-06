@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ 'Edit' if wf else 'New' }} workflow</h1>
+<form method="post" action="{{ 'workflows/' ~ wf.id if wf else 'workflows' }}">
+  <label title="Shown in the workflow list. Pick something the people you share it with will recognize.">Name</label>
+  <input name="name" value="{{ wf.name if wf else '' }}" required
+         title="Shown in the workflow list. Pick something the people you share it with will recognize.">
+
+  <label>Sets (who can see &amp; run this) — none = private to you</label>
+  {% if sets %}
+    {% for s in sets %}
+    <label class="check">
+      <input type="checkbox" name="sets" value="{{ s.id }}"
+             {{ 'checked' if s.id in wf_set_ids }}> {{ s.name }}</label>
+    {% endfor %}
+  {% else %}
+    <p style="color:var(--muted)">You're not in any sets yet — this workflow stays private. An admin can add you to sets.</p>
+  {% endif %}
+
+  <label title='Fields the runner fills in before starting. JSON list, e.g. [{"key":"url","label":"Page URL","type":"text"}]. type is text, textarea, or file.'>Inputs spec (JSON list of {key, label, type: text|textarea|file})</label>
+  <textarea name="inputs_spec"
+            title='Fields the runner fills in before starting. JSON list, e.g. [{"key":"url","label":"Page URL","type":"text"}]. type is text, textarea, or file.'>{{ wf.inputs_spec if wf else '[]' }}</textarea>
+
+  <label title="Claude model the agent runs on. Account default is used if left unset.">Model</label>
+  <select name="model" title="Claude model the agent runs on. Account default is used if left unset.">
+    {% for val, lbl in models %}
+    <option value="{{ val }}" {{ 'selected' if (wf.model if wf else '') == val }}>{{ lbl }}</option>
+    {% endfor %}
+  </select>
+
+  <label title="The main instruction the agent executes. The run's inputs and uploaded files are appended below it automatically.">Action prompt (what the agent does)</label>
+  <textarea name="action_prompt"
+            title="The main instruction the agent executes. The run's inputs and uploaded files are appended below it automatically.">{{ wf.action_prompt if wf else '' }}</textarea>
+
+  {% set eval_help = 'Run after the action to turn the agent\'s work into the result shown to the user. Leave blank to skip. To chain: tell it to call next_workflow("Workflow name", "handover note", inputs) to hand off to another workflow, which runs next in the SAME sandbox (sees all files produced so far). It can call workflow_inputs("Workflow name") first to see what the next workflow expects, then fill those keys via the inputs JSON object as part of the handover.' %}
+  <label title='{{ eval_help }}'>Eval prompt (how to summarize the result)</label>
+  <textarea name="eval_prompt" title='{{ eval_help }}'>{{ wf.eval_prompt if wf else '' }}</textarea>
+
+  {% set tools_help = 'Extra MCP servers the agent may use. JSON list. Use a registered tool name (see below), or an inline server: {"name": "nnn", "type": "http", "url": "https://..."}. Empty = just the built-in file/shell tools.' %}
+  <label title='{{ tools_help }}'>Tools (JSON list of tool names and/or inline servers)</label>
+  <textarea name="tools" title='{{ tools_help }}'>{{ wf.tools if wf else '[]' }}</textarea>
+  <p style="color:var(--muted);font-size:.85rem;margin:.3rem 0 0">
+    {% if tool_names %}Available tools: {% for n in tool_names %}<code>"{{ n }}"</code>{{ ' ' }}{% endfor %}
+    {% else %}No registered tools — an admin can add MCP servers under Admin → Tools.{% endif %}</p>
+
+  <p><button>Save</button> <a class="btn secondary" href="workflows">Cancel</a></p>
+</form>
+{% endblock %}

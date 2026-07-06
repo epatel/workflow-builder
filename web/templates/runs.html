@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ 'All runs' if is_admin else 'Your runs' }}</h1>
+{% if not runs %}<p style="margin-top:1rem">No runs yet.</p>{% endif %}
+{% if runs %}
+<table>
+  <tr><th>#</th><th>Workflow</th><th>Status</th>{% if is_admin %}<th>By</th>{% endif %}<th>Started</th></tr>
+  {% for r in runs %}
+  <tr>
+    <td class="mono"><a href="runs/{{ r.id }}">#{{ r.id }}</a></td>
+    <td>{{ r.wf }}</td>
+    <td><span class="status st-{{ r.status }}">{{ r.status }}</span></td>
+    {% if is_admin %}<td>{{ r.who }}</td>{% endif %}
+    <td class="mono">{{ r.created_at }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

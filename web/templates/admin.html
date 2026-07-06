@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Admin</h1>
+
+<style>
+  .tabs{display:flex;gap:1.3rem;border-bottom:1px solid var(--border);margin-bottom:1.2rem;flex-wrap:wrap}
+  .tab{background:none;border:0;border-radius:0;color:var(--muted);padding:.5rem .1rem;
+       border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+  .tab:hover{background:none;color:var(--fg)}
+  .tab.active{color:var(--fg);border-bottom-color:var(--accent)}
+  .panel{display:none}
+  .panel.active{display:block}
+</style>
+
+<nav class="tabs">
+  <button class="tab" data-tab="sets">Sets</button>
+  <button class="tab" data-tab="invites">Invites</button>
+  <button class="tab" data-tab="users">Users</button>
+  <button class="tab" data-tab="tools">Tools</button>
+  <button class="tab" data-tab="runs">Runs ({{ run_total }})</button>
+</nav>
+
+<section class="panel" data-panel="sets">
+  <form method="post" action="admin/sets" style="display:flex;gap:.5rem;align-items:end">
+    <div><label>New set name</label><input name="name" required></div>
+    <button>Create set</button>
+  </form>
+  {% if sets %}
+  <table>
+    <tr><th>Set</th><th></th></tr>
+    {% for s in sets %}
+    <tr><td>{{ s.name }}</td>
+        <td><form method="post" action="admin/sets/{{ s.id }}/delete" style="display:inline"
+                 data-confirm="Delete set {{ s.name }}? Workflows lose this set and members lose access."><button class="danger">Delete</button></form></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p style="color:var(--muted)">No sets yet. Create one, then add users and workflows to it.</p>{% endif %}
+</section>
+
+<section class="panel" data-panel="invites">
+  <form method="post" action="admin/invites" style="margin-bottom:.5rem">
+    <div style="display:flex;gap:.5rem;align-items:end">
+      <div><label>Role</label>
+        <select name="role"><option>user</option><option>editor</option><option>admin</option></select></div>
+      <button>Create invite</button>
+    </div>
+    {% if sets %}<label>Sets the new account joins</label>
+      {% for s in sets %}<label class="check">
+        <input type="checkbox" name="sets" value="{{ s.id }}"> {{ s.name }}</label>{% endfor %}
+    {% endif %}
+  </form>
+  <table>
+    <tr><th>Code</th><th>Role</th><th>Sets</th><th>Used by</th></tr>
+    {% for i in invites %}
+    <tr><td><code>{{ i.code }}</code></td><td>{{ i.role }}</td>
+        <td>{% for sid in invite_sets[i.id] %}{{ set_name[sid] }}{{ ', ' if not loop.last }}{% else %}—{% endfor %}</td>
+        <td>{{ i.used_by or '—' }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="panel" data-panel="users">
+  <table>
+    <tr><th>Email</th><th>Role</th><th>Status</th><th>Sets (membership)</th><th></th></tr>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.email }}{% if not u.email_verified %} <span style="color:var(--muted)">(unverified)</span>{% endif %}</td>
+      <td>{{ u.role }}</td><td>{{ u.status }}</td>
+      <td>
+        {% if sets %}
+        <form method="post" action="admin/users/{{ u.id }}/sets" style="display:flex;align-items:center;gap:.2rem;flex-wrap:wrap">
+          {% for s in sets %}<label class="check">
+            <input type="checkbox" name="sets" value="{{ s.id }}"
+                   {{ 'checked' if s.id in user_sets[u.id] }}> {{ s.name }}</label>{% endfor %}
+          <button class="secondary">Save</button>
+        </form>
+        {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+      </td>
+      <td>
+        {% if u.id != user.id %}
+          {% if u.status == 'active' %}
+            <form method="post" action="admin/users/{{ u.id }}/block" style="display:inline"><button class="secondary">Block</button></form>
+          {% else %}
+            <form method="post" action="admin/users/{{ u.id }}/unblock" style="display:inline"><button class="secondary">Unblock</button></form>
+          {% endif %}
+          <form method="post" action="admin/users/{{ u.id }}/delete" style="display:inline"
+                data-confirm="Delete {{ u.email }}? This removes the account and its runs."><button class="danger">Delete</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="panel" data-panel="tools">
+  <p style="color:var(--muted);font-size:.9rem;margin-top:0">MCP servers a workflow can name in its
+    Tools list (e.g. <code>["puppeteer"]</code>). The config is the server dict minus
+    <code>name</code> — <code>type</code> (http/sse) and <code>url</code> required; extra keys like
+    <code>headers</code> pass through, e.g.
+    <code>{"type": "http", "url": "https://…", "headers": {"Authorization": "Bearer …"}}</code>.
+    Disabled tools are skipped when a run starts, with a note in the run log.</p>
+  <p><button id="toolAddBtn">Add tool</button></p>
+  {% if mcp_tools %}
+  <table>
+    <tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr>
+    {% for t in mcp_tools %}
+    <tr>
+      <td><code>{{ t.name }}</code></td>
+      <td class="mono" style="word-break:break-all;color:var(--muted)">{{ t.url }}</td>
+      <td><span class="status {{ 'st-done' if t.enabled else 'st-pending' }}">{{ 'enabled' if t.enabled else 'disabled' }}</span></td>
+      <td style="white-space:nowrap">
+        <button class="secondary edit-cfg" data-id="{{ t.id }}" data-name="{{ t.name }}"
+                data-config="{{ t.config }}">Config</button>
+        <form method="post" action="admin/tools/{{ t.id }}/toggle" style="display:inline">
+          <button class="secondary">{{ 'Disable' if t.enabled else 'Enable' }}</button></form>
+        <form method="post" action="admin/tools/{{ t.id }}/delete" style="display:inline"
+              data-confirm="Delete tool {{ t.name }}? Workflows naming it will run without it.">
+          <button class="danger">Delete</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p style="color:var(--muted)">No tools registered.</p>{% endif %}
+
+  <!-- Tool dialog: "Add tool" opens it empty; a row's Config button opens it for that tool -->
+  <dialog id="toolDlg" style="border:1px solid var(--border);border-radius:12px;padding:0;
+       width:min(34rem,90vw);background:var(--surface);color:var(--fg)">
+    <form method="post" id="toolDlgForm" style="padding:1.2rem">
+      <h2 id="toolDlgTitle" style="margin:0 0 .6rem"></h2>
+      <div id="toolDlgNameRow">
+        <label style="margin-top:0">Name</label>
+        <input name="name" id="toolDlgName" placeholder="puppeteer">
+      </div>
+      <label>Config (JSON)</label>
+      <textarea name="config" id="toolDlgCfg" rows="10" style="min-height:12rem"></textarea>
+      <p class="err" data-json-err hidden style="margin:.3rem 0 0"></p>
+      <p style="display:flex;gap:.5rem;justify-content:flex-end;margin:.8rem 0 0">
+        <button type="button" class="secondary" onclick="document.getElementById('toolDlg').close()">Cancel</button>
+        <button id="toolDlgSave">Save</button>
+      </p>
+    </form>
+  </dialog>
+</section>
+
+<section class="panel" data-panel="runs">
+  <form method="post" action="admin/runs/purge" style="display:flex;gap:.5rem;align-items:end;margin-bottom:1rem"
+        data-confirm="Delete all runs older than the entered number of days? This removes their logs and sandbox files.">
+    <div style="flex:0 0 8rem"><label>Older than (days)</label><input name="days" type="number" min="0" value="30" required></div>
+    <button class="danger">Purge old runs</button>
+  </form>
+  {% if runs %}
+  <table>
+    <tr><th>#</th><th>Workflow</th><th>User</th><th>Status</th><th>Created</th><th></th></tr>
+    {% for r in runs %}
+    <tr>
+      <td class="mono"><a href="runs/{{ r.id }}">#{{ r.id }}</a></td>
+      <td>{{ r.wf }}</td><td>{{ r.who }}</td>
+      <td><span class="status st-{{ r.status }}">{{ r.status }}</span></td>
+      <td class="mono">{{ r.created_at }}</td>
+      <td><form method="post" action="admin/runs/{{ r.id }}/delete" style="display:inline"
+               data-confirm="Delete run #{{ r.id }} and its files?"><button class="danger">Delete</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if run_total > runs|length %}<p style="color:var(--muted)">Showing the {{ runs|length }} most recent. Use purge to remove older ones.</p>{% endif %}
+  {% else %}<p>No runs.</p>{% endif %}
+</section>
+
+<script>
+// Tool config editing: per-row Config button opens a dialog with the pretty-printed
+// JSON; both it and the add form syntax-check the config before submitting (the
+// server re-validates — this is just faster feedback).
+(function(){
+  function checkConfig(text){
+    let cfg;
+    try { cfg = JSON.parse(text); }
+    catch (e) { return "Not valid JSON: " + e.message; }
+    if (typeof cfg !== "object" || cfg === null || Array.isArray(cfg))
+      return 'Config must be a JSON object, e.g. {"type": "http", "url": "..."}';
+    if (cfg.type !== "http" && cfg.type !== "sse") return '"type" must be "http" or "sse"';
+    if (typeof cfg.url !== "string" || !/^https?:\/\//.test(cfg.url)) return 'Needs an http(s) "url"';
+    if ("name" in cfg) return 'Leave "name" out — the tool name is the name';
+    return null;
+  }
+  const dlg = document.getElementById("toolDlg");
+  const form = document.getElementById("toolDlgForm");
+  const nameRow = document.getElementById("toolDlgNameRow");
+  const nameInput = document.getElementById("toolDlgName");
+  const cfgInput = document.getElementById("toolDlgCfg");
+
+  form.addEventListener("submit", e => {
+    const err = checkConfig(cfgInput.value);
+    const out = form.querySelector("[data-json-err]");
+    out.hidden = !err;
+    out.textContent = err || "";
+    if (err) e.preventDefault();
+  });
+
+  function open(title, action, withName, cfg){
+    document.getElementById("toolDlgTitle").textContent = title;
+    form.action = action;
+    nameRow.hidden = !withName;
+    nameInput.required = withName;
+    nameInput.value = "";
+    try { cfg = JSON.stringify(JSON.parse(cfg), null, 2); } catch (e) {}
+    cfgInput.value = cfg;
+    form.querySelector("[data-json-err]").hidden = true;
+    dlg.showModal();
+  }
+  document.getElementById("toolAddBtn").addEventListener("click", () =>
+    open("Add tool", "admin/tools", true, '{\n  "type": "http",\n  "url": ""\n}'));
+  document.querySelectorAll(".edit-cfg").forEach(btn => btn.addEventListener("click", () =>
+    open("Config — " + btn.dataset.name, "admin/tools/" + btn.dataset.id, false, btn.dataset.config)));
+})();
+
+// ponytail: localStorage keeps the active tab across form-submit redirects to /admin
+(function(){
+  const tabs = document.querySelectorAll(".tab");
+  function show(name){
+    tabs.forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+    document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.dataset.panel === name));
+    try { localStorage.adminTab = name; } catch(e){}
+  }
+  tabs.forEach(t => t.addEventListener("click", () => show(t.dataset.tab)));
+  let start = "sets";
+  try { if (localStorage.adminTab) start = localStorage.adminTab; } catch(e){}
+  if (![...tabs].some(t => t.dataset.tab === start)) start = "sets";
+  show(start);
+})();
+</script>
+{% endblock %}

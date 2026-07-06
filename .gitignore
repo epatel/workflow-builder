@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+.env
+web/uploads/
+sandboxes/
+agents-lab/
+graphify-out/
+venv/

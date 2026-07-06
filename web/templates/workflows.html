@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;align-items:center;gap:.6rem">
+  <h1 style="margin:0">Workflows</h1>
+  {% if user.role in ('editor','admin') %}
+  <a class="btn icon-btn" href="workflows/new" title="New workflow" aria-label="New workflow">+</a>
+  {% endif %}
+</div>
+{% if not workflows %}<p style="margin-top:1rem">No workflows yet.{% if user.role in ('editor','admin') %} Use the <b>+</b> to create one.{% endif %}</p>{% endif %}
+{% for w in workflows %}
+<div class="card" style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap">
+  <a href="workflows/{{ w.id }}" style="font-family:var(--font-display);font-weight:500">{{ w.name }}</a>
+  <span style="color:var(--muted);font-size:.85rem">{{ wf_sets[w.id]|join(', ') if wf_sets[w.id] else 'private' }} · by {{ w.owner_name }}</span>
+  <span style="flex:1"></span>
+  {% if w.owner_id == user.id or user.role == 'admin' %}
+    <a class="btn secondary" style="padding:.25rem .7rem;font-size:.8rem" href="workflows/{{ w.id }}/edit">Edit</a>{% endif %}
+</div>
+{% endfor %}
+{% endblock %}

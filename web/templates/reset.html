@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Reset password</h1>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+<form method="post" action="reset-password">
+  <input type="hidden" name="token" value="{{ token }}">
+  <label>New password</label><input name="password" type="password" required>
+  <p><button>Set new password</button></p>
+</form>
+{% endblock %}

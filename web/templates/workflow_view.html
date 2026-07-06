@@ -15,6 +15,35 @@
   <p><button>Start workflow</button></p>
 </form>
 
+{% if can_edit %}
+<h2>API endpoints</h2>
+<p style="color:var(--muted)">POST the inputs (a JSON object, or multipart form-data with file
+   parts for file inputs) with the token as a bearer token to start a run; the response carries
+   the run id. Poll the run URL for status, and when done fetch result files from
+   <span class="mono">…/data/&lt;item&gt;</span>.</p>
+{% for ep in endpoints %}
+<p class="mono">POST {{ api_prefix }}/api/endpoints/{{ ep.name }}<br>
+   GET&nbsp; {{ api_prefix }}/api/endpoints/{{ ep.name }}/runs/&lt;run_id&gt;[/data/&lt;item&gt;]</p>
+<form method="post" action="workflows/{{ wf.id }}/endpoints/{{ ep.id }}">
+  <label>Bearer token</label>
+  <input name="token" value="{{ ep.token }}" required>
+  <p><button>Save token</button>
+     <button name="generate" value="1" formnovalidate>Generate random</button></p>
+</form>
+<form method="post" action="workflows/{{ wf.id }}/endpoints/{{ ep.id }}/delete"
+      onsubmit="return confirm('Delete endpoint {{ ep.name }}?')">
+  <button>Delete endpoint</button>
+</form>
+{% endfor %}
+<form method="post" action="workflows/{{ wf.id }}/endpoints">
+  <label>Endpoint name (unique, lowercase)</label>
+  <input name="name" pattern="[a-z0-9][a-z0-9_-]{1,63}" required>
+  <label>Bearer token (leave empty to generate)</label>
+  <input name="token">
+  <p><button>Add endpoint</button></p>
+</form>
+{% endif %}
+
 <h2>Your recent runs</h2>
 <table>
   <tr><th>#</th><th>Status</th><th>Started</th></tr>

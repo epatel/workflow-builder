@@ -57,6 +57,27 @@ narrated step by step on the run page. Later steps get no new human input — th
 sandbox, the previous step's result, the handover note, and any filled inputs. Bounded by
 `MAX_CHAIN_STEPS` (default 10).
 
+**API endpoints:** a workflow's owner (or an admin) can attach named endpoints to it on the
+workflow page. Each endpoint has a globally unique name and its own bearer token (editable, or
+regenerate a random one with a click), letting external callers start runs without a browser
+session:
+
+```sh
+curl -X POST https://…/workflow/api/endpoints/<name> \
+  -H "Authorization: Bearer <token>" -d '{"topic": "hi", "doc": "file contents"}'
+# -> {"run_id": 42, "status": "pending", "status_url": ".../api/endpoints/<name>/runs/42"}
+
+# or multipart, with real (binary-safe) file parts:
+curl -X POST https://…/workflow/api/endpoints/<name> \
+  -H "Authorization: Bearer <token>" -F topic=hi -F doc=@shot.png
+```
+
+Inputs are keyed by the workflow's inputs spec — a JSON object (a string for a `file` input is
+stored as `<key>.txt`) or `multipart/form-data` with file parts for `file` inputs. The run
+belongs to the workflow's owner. Poll
+`GET /api/endpoints/<name>/runs/<id>` (same token) for `{status, result, error, data}` — `data`
+lists the run's sandbox files, each downloadable at `…/runs/<id>/data/<item>`.
+
 ## Setup
 
 Requires Python 3.12+. The **agent host** also needs Node and the Claude Code CLI,

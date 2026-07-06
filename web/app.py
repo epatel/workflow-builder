@@ -1,8 +1,10 @@
 """Workflow Builder — web server: accounts, workflow CRUD, run queue API."""
 import json
 import os
+import re
 import secrets
 import shutil
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -632,10 +634,15 @@ def view_workflow(request: Request, wid: int, user=Depends(current_user)):
         runs = conn.execute(
             "SELECT * FROM runs WHERE workflow_id=? AND user_id=? ORDER BY id DESC LIMIT 20",
             (wid, user["id"])).fetchall()
+        can_edit = w["owner_id"] == user["id"] or user["role"] == "admin"
+        endpoints = conn.execute(
+            "SELECT * FROM endpoints WHERE workflow_id=? ORDER BY name",
+            (wid,)).fetchall() if can_edit else []
     finally:
         conn.close()
     return page(request, "workflow_view.html", user=user, wf=w,
-                inputs=json.loads(w["inputs_spec"] or "[]"), runs=runs, set_names=set_names)
+                inputs=json.loads(w["inputs_spec"] or "[]"), runs=runs, set_names=set_names,
+                can_edit=can_edit, endpoints=endpoints, api_prefix=_prefix(request))
 
 
 @app.get("/workflows/{wid}/edit", response_class=HTMLResponse)
@@ -677,6 +684,176 @@ def update_workflow(request: Request, wid: int, name: str = Form(...),
         return redirect(request, f"/workflows/{wid}")
     finally:
         conn.close()
+
+
+# ---------- endpoints (trigger a workflow via API) ----------
+
+_ENDPOINT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
+
+
+@app.post("/workflows/{wid}/endpoints")
+def create_endpoint(request: Request, wid: int, name: str = Form(...), token: str = Form(""),
+                    user=Depends(require_role("editor"))):
+    name = name.strip().lower()
+    if not _ENDPOINT_NAME_RE.match(name):
+        raise HTTPException(400, "Endpoint name: 2-64 chars, lowercase letters/digits/-/_,"
+                                 " starting with a letter or digit.")
+    conn = connect()
+    try:
+        _get_workflow(conn, wid, user, for_edit=True)
+        try:
+            conn.execute("INSERT INTO endpoints (workflow_id, name, token) VALUES (?,?,?)",
+                         (wid, name, token.strip() or secrets.token_urlsafe(32)))
+        except sqlite3.IntegrityError:
+            raise HTTPException(400, f'Endpoint name "{name}" is already taken.')
+        conn.commit()
+        return redirect(request, f"/workflows/{wid}")
+    finally:
+        conn.close()
+
+
+@app.post("/workflows/{wid}/endpoints/{eid}")
+def update_endpoint(request: Request, wid: int, eid: int, token: str = Form(""),
+                    generate: str = Form(""), user=Depends(require_role("editor"))):
+    """Save an edited bearer token, or (generate button) replace it with a random one."""
+    token = secrets.token_urlsafe(32) if generate else token.strip()
+    if not token:
+        raise HTTPException(400, "Token cannot be empty.")
+    conn = connect()
+    try:
+        _get_workflow(conn, wid, user, for_edit=True)
+        conn.execute("UPDATE endpoints SET token=? WHERE id=? AND workflow_id=?",
+                     (token, eid, wid))
+        conn.commit()
+        return redirect(request, f"/workflows/{wid}")
+    finally:
+        conn.close()
+
+
+@app.post("/workflows/{wid}/endpoints/{eid}/delete")
+def delete_endpoint(request: Request, wid: int, eid: int, user=Depends(require_role("editor"))):
+    conn = connect()
+    try:
+        _get_workflow(conn, wid, user, for_edit=True)
+        conn.execute("DELETE FROM endpoints WHERE id=? AND workflow_id=?", (eid, wid))
+        conn.commit()
+        return redirect(request, f"/workflows/{wid}")
+    finally:
+        conn.close()
+
+
+def _check_endpoint(conn, name: str, authorization: str | None):
+    """Auth an /api/endpoints call: the endpoint's own bearer token. Same 401 for
+    unknown name and bad token, so endpoint names can't be probed."""
+    supplied = (authorization or "").removeprefix("Bearer ").strip()
+    ep = conn.execute("SELECT * FROM endpoints WHERE name=?", (name,)).fetchone()
+    if ep is None or not secrets.compare_digest(supplied, ep["token"]):
+        raise HTTPException(401, "Bad endpoint token")
+    return ep
+
+
+def _endpoint_run(conn, ep, rid: int):
+    """Fetch a run, 404 unless it belongs to the endpoint's workflow."""
+    r = conn.execute("SELECT * FROM runs WHERE id=? AND workflow_id=?",
+                     (rid, ep["workflow_id"])).fetchone()
+    if r is None:
+        raise HTTPException(404, "Run not found")
+    return r
+
+
+@app.post("/api/endpoints/{name}")
+async def trigger_endpoint(name: str, request: Request,
+                           authorization: str | None = Header(None)):
+    """Start a run of the endpoint's workflow, authed by the endpoint's own bearer token.
+    Body: inputs keyed by the workflow's inputs_spec — either a JSON object (a string for
+    a file-type input is stored as text file <key>.txt) or multipart/form-data with real
+    file parts for file-type inputs. The run belongs to the workflow's owner."""
+    conn = connect()
+    try:
+        ep = _check_endpoint(conn, name, authorization)
+        ctype = request.headers.get("content-type", "")
+        if ctype.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
+            payload = await request.form()
+        else:
+            try:
+                payload = json.loads(await request.body() or b"{}")
+            except json.JSONDecodeError as e:
+                raise HTTPException(400, f"Body must be valid JSON: {e}")
+            if not isinstance(payload, dict):
+                raise HTTPException(400, "Body must be a JSON object of inputs.")
+        w = conn.execute("SELECT * FROM workflows WHERE id=?", (ep["workflow_id"],)).fetchone()
+        cur = conn.execute("INSERT INTO runs (workflow_id, user_id, inputs) VALUES (?,?,?)",
+                           (w["id"], w["owner_id"], "{}"))
+        run_id = cur.lastrowid
+        inputs = {}
+        for field in json.loads(w["inputs_spec"] or "[]"):
+            key = field.get("key")
+            val = payload.get(key)
+            if field.get("type") == "file":
+                fname = blob = None
+                if isinstance(val, UploadFile):
+                    fname, blob = Path(val.filename or f"{key}.bin").name, await val.read()
+                elif isinstance(val, str) and val:
+                    fname, blob = f"{key}.txt", val.encode()
+                if blob is not None:
+                    run_dir = UPLOADS / str(run_id)
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    (run_dir / fname).write_bytes(blob)
+                    inputs[key] = {"file": fname}
+            elif isinstance(val, str):
+                inputs[key] = val
+            elif val is not None and not isinstance(val, UploadFile):
+                inputs[key] = json.dumps(val)
+        conn.execute("UPDATE runs SET inputs=? WHERE id=?", (json.dumps(inputs), run_id))
+        conn.commit()
+        return {"run_id": run_id, "status": "pending",
+                "status_url": f"{_prefix(request)}/api/endpoints/{name}/runs/{run_id}"}
+    finally:
+        conn.close()
+
+
+@app.get("/api/endpoints/{name}/runs/{rid}")
+def endpoint_run_status(request: Request, name: str, rid: int,
+                        authorization: str | None = Header(None)):
+    """Poll a run started via this endpoint: status/result/error, plus the sandbox files
+    ('data') once available — each item fetchable at .../runs/{rid}/data/<item>."""
+    conn = connect()
+    try:
+        ep = _check_endpoint(conn, name, authorization)
+        r = _endpoint_run(conn, ep, rid)
+    finally:
+        conn.close()
+    data = []
+    if AGENT_FILES_URL:
+        try:
+            resp = _agent_files("GET", f"/sandbox/{rid}")
+            if resp.status_code == 200:
+                data = [f["path"] for f in resp.json()["files"]]
+        except Exception:
+            pass  # agent host unreachable — status still useful without the file list
+    base = f"{_prefix(request)}/api/endpoints/{name}/runs/{rid}/data/"
+    return {"run_id": rid, "status": r["status"], "result": r["result"], "error": r["error"],
+            "data": [{"item": p, "url": base + p} for p in data]}
+
+
+@app.get("/api/endpoints/{name}/runs/{rid}/data/{path:path}")
+def endpoint_run_data(name: str, rid: int, path: str,
+                      authorization: str | None = Header(None)):
+    """Download one sandbox file of a run started via this endpoint."""
+    conn = connect()
+    try:
+        ep = _check_endpoint(conn, name, authorization)
+        _endpoint_run(conn, ep, rid)
+    finally:
+        conn.close()
+    resp = _agent_files("GET", f"/sandbox/{rid}/file", params={"path": path, "dl": 1})
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, "File not available")
+    # dl=1 semantics: real content-type but as attachment, so a browser hitting this URL
+    # never renders untrusted sandbox HTML in our origin.
+    return Response(content=resp.content,
+                    media_type=resp.headers.get("content-type", "application/octet-stream"),
+                    headers={k: v for k, v in resp.headers.items() if k == "content-disposition"})
 
 
 # ---------- runs ----------

@@ -9,6 +9,7 @@ import os
 import tempfile
 
 os.environ["DB_PATH"] = tempfile.mktemp(suffix=".db")
+os.environ["UPLOADS_DIR"] = tempfile.mkdtemp()
 os.environ["AGENT_TOKEN"] = "test-agent-token"
 os.environ["SECRET_KEY"] = "test-secret"
 
@@ -293,6 +294,96 @@ def test_mcp_tools():
     assert conn.execute("SELECT COUNT(*) c FROM mcp_tools WHERE id=?", (off_id,)).fetchone()["c"] == 0
 
 
+def test_endpoints():
+    # Runs after test_flow: admin (a@x.com) is logged in via module-level `client`.
+    spec = '[{"key": "topic", "type": "text"}, {"key": "doc", "type": "file"}]'
+    wf = client.post("/workflows", data={"name": "Hooked", "inputs_spec": spec,
+                     "action_prompt": "x", "eval_prompt": "y"}, follow_redirects=False)
+    wid = int(wf.headers["location"].split("/")[-1])
+
+    # create: bad name rejected, good name ok, duplicate rejected
+    assert client.post(f"/workflows/{wid}/endpoints", data={"name": "Bad Name!"},
+                       follow_redirects=False).status_code == 400
+    assert client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
+                       follow_redirects=False).status_code == 303
+    assert client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
+                       follow_redirects=False).status_code == 400
+
+    conn = appmod.connect()
+    ep = conn.execute("SELECT * FROM endpoints WHERE name='hooked-1'").fetchone()
+    token = ep["token"]
+    assert token in client.get(f"/workflows/{wid}").text  # shown to the owner
+
+    # token is editable, the generate button replaces it, empty is rejected
+    client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "my-own-secret"},
+                follow_redirects=False)
+    assert conn.execute("SELECT token FROM endpoints WHERE id=?",
+                        (ep["id"],)).fetchone()[0] == "my-own-secret"
+    client.post(f"/workflows/{wid}/endpoints/{ep['id']}",
+                data={"token": "ignored", "generate": "1"}, follow_redirects=False)
+    generated = conn.execute("SELECT token FROM endpoints WHERE id=?", (ep["id"],)).fetchone()[0]
+    assert generated not in ("my-own-secret", "ignored") and len(generated) > 20
+    assert client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "  "},
+                       follow_redirects=False).status_code == 400
+    client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": token},
+                follow_redirects=False)  # restore for the calls below
+
+    # a supplied token is kept on create
+    client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-2", "token": "preset"},
+                follow_redirects=False)
+    assert conn.execute("SELECT token FROM endpoints WHERE name='hooked-2'").fetchone()[0] == "preset"
+
+    # auth: wrong token and unknown name both 401 (no name probing), missing header 401
+    hdr = {"Authorization": f"Bearer {token}"}
+    assert client.post("/api/endpoints/hooked-1",
+                       headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert client.post("/api/endpoints/ghost", headers=hdr).status_code == 401
+    assert client.post("/api/endpoints/hooked-1").status_code == 401
+
+    # bad body rejected
+    assert client.post("/api/endpoints/hooked-1", headers=hdr, content=b"junk").status_code == 400
+    assert client.post("/api/endpoints/hooked-1", headers=hdr, json=[1, 2]).status_code == 400
+
+    # trigger: run created pending for the owner, text stored, file-input string saved as file
+    r = client.post("/api/endpoints/hooked-1", headers=hdr,
+                    json={"topic": "hi", "doc": "file body", "extra": "ignored"})
+    assert r.status_code == 200 and r.json()["status"] == "pending"
+    rid = r.json()["run_id"]
+    assert r.json()["status_url"].endswith(f"/api/endpoints/hooked-1/runs/{rid}")
+    run = conn.execute("SELECT * FROM runs WHERE id=?", (rid,)).fetchone()
+    inputs = json.loads(run["inputs"])
+    assert run["status"] == "pending" and inputs["topic"] == "hi" and "extra" not in inputs
+    assert inputs["doc"] == {"file": "doc.txt"}
+    assert client.get(f"/api/runs/{rid}/files/doc.txt", headers=AGENT).text == "file body"
+
+    # multipart post: binary file part kept byte-for-byte, text field alongside
+    png = b"\x89PNG\r\n\x1a\n\x00binary"
+    r = client.post("/api/endpoints/hooked-1", headers=hdr,
+                    data={"topic": "multi"}, files={"doc": ("shot.png", png, "image/png")})
+    brid = r.json()["run_id"]
+    binputs = json.loads(conn.execute("SELECT inputs FROM runs WHERE id=?", (brid,)).fetchone()[0])
+    assert binputs == {"topic": "multi", "doc": {"file": "shot.png"}}
+    assert client.get(f"/api/runs/{brid}/files/shot.png", headers=AGENT).content == png
+
+    # poll status with the endpoint token; agent host not configured -> data list empty
+    st = client.get(f"/api/endpoints/hooked-1/runs/{rid}", headers=hdr).json()
+    assert st["status"] == "pending" and st["data"] == []
+    # a run of another workflow is invisible through this endpoint
+    other = conn.execute("SELECT id FROM runs WHERE workflow_id!=? LIMIT 1", (wid,)).fetchone()
+    assert client.get(f"/api/endpoints/hooked-1/runs/{other['id']}", headers=hdr).status_code == 404
+    assert client.get(f"/api/endpoints/hooked-1/runs/{rid}",
+                      headers={"Authorization": "Bearer nope"}).status_code == 401
+    # data fetch without an agent host configured -> 503, with bad token -> 401
+    assert client.get(f"/api/endpoints/hooked-1/runs/{rid}/data/out.txt", headers=hdr).status_code == 503
+    assert client.get(f"/api/endpoints/hooked-1/runs/{rid}/data/out.txt",
+                      headers={"Authorization": "Bearer nope"}).status_code == 401
+
+    # delete: gone from the DB, calls now 401
+    client.post(f"/workflows/{wid}/endpoints/{ep['id']}/delete", follow_redirects=False)
+    assert conn.execute("SELECT COUNT(*) c FROM endpoints WHERE name='hooked-1'").fetchone()["c"] == 0
+    assert client.post("/api/endpoints/hooked-1", headers=hdr, json={}).status_code == 401
+
+
 if __name__ == "__main__":
     test_classify()
     test_highlight()
@@ -300,3 +391,4 @@ if __name__ == "__main__":
     test_resolve_workflow()
     test_reap_running()
     test_mcp_tools()
+    test_endpoints()

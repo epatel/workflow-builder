@@ -7,6 +7,18 @@ The run lifecycle and the agent-facing API contract. Web side: `web/app.py`. Age
 (`POST /workflows/{id}/run`): text inputs go into `inputs` JSON; uploaded files are saved on the
 web host under `uploads/<run_id>/` and referenced as `{"file": name}` in `inputs`.
 
+**Workflow endpoints (external trigger API).** A workflow owner/admin can attach named endpoints
+(table `endpoints`: globally unique `name` + per-endpoint bearer `token`, managed on the workflow
+page — token is editable or regenerable at a click). `POST /api/endpoints/{name}` with that token
+creates a pending run owned by the **workflow's owner**; inputs come as a JSON object (a string
+for a `file` input is saved as `uploads/<run_id>/<key>.txt`) or as `multipart/form-data` with real
+file parts for `file` inputs. Returns `{run_id, status, status_url}`.
+`GET /api/endpoints/{name}/runs/{rid}` polls `{status, result, error, data}` — `data` is the run's
+sandbox file list (via the agent files proxy, empty if unreachable), each item downloadable at
+`GET …/runs/{rid}/data/{path}` (attachment semantics, so untrusted sandbox HTML never renders in
+our origin). Both GETs 404 runs that don't belong to the endpoint's workflow; auth failures and
+unknown endpoint names both return the same 401 so names can't be probed.
+
 **Agent API (bearer-token auth).** The agent has no DB; it uses these endpoints. Auth is a single
 shared secret: `Authorization: Bearer <AGENT_TOKEN>`, identical in `web/.env` and `agent/.env`.
 `_check_agent` rejects anything else with 401.

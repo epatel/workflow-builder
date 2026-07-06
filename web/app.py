@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 import markdown as md
@@ -626,7 +627,7 @@ def _get_workflow(conn, wid, user, *, for_edit=False):
 
 
 @app.get("/workflows/{wid}", response_class=HTMLResponse)
-def view_workflow(request: Request, wid: int, user=Depends(current_user)):
+def view_workflow(request: Request, wid: int, ep_error: str = "", user=Depends(current_user)):
     conn = connect()
     try:
         w = _get_workflow(conn, wid, user)
@@ -642,7 +643,8 @@ def view_workflow(request: Request, wid: int, user=Depends(current_user)):
         conn.close()
     return page(request, "workflow_view.html", user=user, wf=w,
                 inputs=json.loads(w["inputs_spec"] or "[]"), runs=runs, set_names=set_names,
-                can_edit=can_edit, endpoints=endpoints, api_prefix=_prefix(request))
+                can_edit=can_edit, endpoints=endpoints, api_prefix=_prefix(request),
+                ep_error=ep_error)
 
 
 @app.get("/workflows/{wid}/edit", response_class=HTMLResponse)
@@ -691,13 +693,18 @@ def update_workflow(request: Request, wid: int, name: str = Form(...),
 _ENDPOINT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 
 
+def _ep_error(request, wid: int, message: str):
+    """Bounce a bad endpoint form back to the workflow page; the dialog reopens with the error."""
+    return redirect(request, f"/workflows/{wid}?ep_error={quote(message)}")
+
+
 @app.post("/workflows/{wid}/endpoints")
 def create_endpoint(request: Request, wid: int, name: str = Form(...), token: str = Form(""),
                     user=Depends(require_role("editor"))):
     name = name.strip().lower()
     if not _ENDPOINT_NAME_RE.match(name):
-        raise HTTPException(400, "Endpoint name: 2-64 chars, lowercase letters/digits/-/_,"
-                                 " starting with a letter or digit.")
+        return _ep_error(request, wid, "Endpoint name: 2-64 chars, lowercase letters/digits/-/_,"
+                                       " starting with a letter or digit.")
     conn = connect()
     try:
         _get_workflow(conn, wid, user, for_edit=True)
@@ -705,7 +712,7 @@ def create_endpoint(request: Request, wid: int, name: str = Form(...), token: st
             conn.execute("INSERT INTO endpoints (workflow_id, name, token) VALUES (?,?,?)",
                          (wid, name, token.strip() or secrets.token_urlsafe(32)))
         except sqlite3.IntegrityError:
-            raise HTTPException(400, f'Endpoint name "{name}" is already taken.')
+            return _ep_error(request, wid, f'Endpoint name "{name}" is already taken.')
         conn.commit()
         return redirect(request, f"/workflows/{wid}")
     finally:
@@ -718,7 +725,7 @@ def update_endpoint(request: Request, wid: int, eid: int, token: str = Form(""),
     """Save an edited bearer token (random generation happens client-side)."""
     token = token.strip()
     if not token:
-        raise HTTPException(400, "Token cannot be empty.")
+        return _ep_error(request, wid, "Token cannot be empty.")
     conn = connect()
     try:
         _get_workflow(conn, wid, user, for_edit=True)

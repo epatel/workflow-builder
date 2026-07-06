@@ -301,13 +301,17 @@ def test_endpoints():
                      "action_prompt": "x", "eval_prompt": "y"}, follow_redirects=False)
     wid = int(wf.headers["location"].split("/")[-1])
 
-    # create: bad name rejected, good name ok, duplicate rejected
-    assert client.post(f"/workflows/{wid}/endpoints", data={"name": "Bad Name!"},
-                       follow_redirects=False).status_code == 400
-    assert client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
-                       follow_redirects=False).status_code == 303
-    assert client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
-                       follow_redirects=False).status_code == 400
+    # create: bad name and duplicate bounce back with ep_error (dialog reopens); good name ok
+    r = client.post(f"/workflows/{wid}/endpoints", data={"name": "Bad Name!"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "ep_error=" in r.headers["location"]
+    r = client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "ep_error" not in r.headers["location"]
+    r = client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "ep_error=" in r.headers["location"]
+    assert "already taken" in client.get(r.headers["location"]).text  # shown in the dialog
 
     conn = appmod.connect()
     ep = conn.execute("SELECT * FROM endpoints WHERE name='hooked-1'").fetchone()
@@ -319,8 +323,9 @@ def test_endpoints():
                 follow_redirects=False)
     assert conn.execute("SELECT token FROM endpoints WHERE id=?",
                         (ep["id"],)).fetchone()[0] == "my-own-secret"
-    assert client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "  "},
-                       follow_redirects=False).status_code == 400
+    r = client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "  "},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "ep_error=" in r.headers["location"]
     client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": token},
                 follow_redirects=False)  # restore for the calls below
 

@@ -28,6 +28,7 @@
                background:var(--surface);color:var(--fg);max-width:34rem;width:90%;
                padding:1.2rem 1.4rem">
   <h2 style="margin-top:0">API endpoints</h2>
+  {% if ep_error %}<p class="err">{{ ep_error }}</p>{% endif %}
   <p style="color:var(--muted)">POST the inputs (a JSON object, or multipart form-data with file
      parts for file inputs) with the token as a bearer token to start a run; the response carries
      the run id. Poll the run URL for status, and when done fetch result files from
@@ -64,6 +65,7 @@ function genToken(input){
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
   input.value = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => chars[b & 63]).join("");
 }
+{% if ep_error %}document.getElementById('ep-dialog').showModal();{% endif %}
 </script>
 {% endif %}
 

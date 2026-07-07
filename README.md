@@ -48,7 +48,9 @@ and an enabled flag. Names are resolved to server configs when the agent claims 
 tools are skipped with a note in the run log.
 
 A run collects the inputs, drops files in `sandboxes/<run_id>/`, runs the action prompt,
-then a read-only eval pass that produces the summary.
+then a read-only eval pass that produces the summary. When the run ends the worker writes
+`status.json` into the sandbox with the run's **total running time** (`total_seconds`) alongside its
+status and start/finish timestamps.
 
 **Chaining:** an eval prompt can call `next_workflow("Workflow name", "handover note", inputs)` to
 hand off to another workflow, which runs next **in the same sandbox** (it sees every file produced so

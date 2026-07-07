@@ -44,6 +44,12 @@ Claude Agent SDK in a per-run sandbox.
   key to survive the drop-undeclared filter. Made the routed workflows declare the `to` input so the
   handover threading is genuine; corrected the `filter_handover_inputs` docstring (empty spec drops all,
   only an unparseable spec keeps everything).
+- 2026-07-07 — Each run's total wall-clock running time is captured in a `status.json` at the root
+  of the run's sandbox (`worker.handle` times the run with a monotonic clock; `build_status` builds
+  the payload `{run_id, status, started_at, finished_at, total_seconds[, error]}`). Written in a
+  `finally` for both done/error paths, best-effort. It's a sandbox file, so it surfaces in the file
+  browser. Covered by `agent/test_agent.py` (`test_build_status` + status.json assertions in
+  `test_handle_success`). See cards/agent-runner.md.
 - 2026-06-21 — Sandbox file browsing is a **live passthrough**, not a copy-back: agent serves a read-only `/sandbox` file API in-process (`home:9006`, Apache `/workflow-agent`, token-auth, traversal-guarded); web proxies after authorizing the run owner. This adds an inbound server on the agent host (supersedes the earlier "agent needs no Apache" note). **Locked.** See cards/run-files.md.
 
 ## Current state / handoff
@@ -80,6 +86,9 @@ feedback), replacing the old asymmetric-padding oval. The workflow-view "show cu
 button uses `.icon-btn secondary`; a `.icon-btn.secondary` rule now drops the redundant outer
 border (the glyph is already a circled-i) and `.icon-btn` gets `vertical-align:middle` so it lines
 up with the taller adjacent endpoint-name button.
+
+Runs now leave a `status.json` in their sandbox with the **total running time** (`total_seconds`)
+plus status and start/finish timestamps — see Decisions (2026-07-07) and cards/agent-runner.md.
 
 **Deploy gotcha (seen 2026-06-21):** `make deploy-web` only rsyncs files — it does NOT restart the
 uvicorn process. A "not found" / 404 on a route that exists in the deployed `app.py` (e.g. `/runs`)

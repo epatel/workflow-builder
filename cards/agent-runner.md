@@ -6,6 +6,13 @@ How the agent executes one workflow with the Claude Agent SDK. `agent/runner.py`
 sandbox path, run the workflow, report `done` + result (or catch any exception and report `error`).
 One job at a time; failures never kill the loop. Run more processes for more throughput.
 
+**status.json** (`worker.handle`): the worker times each run with a monotonic clock and, in a
+`finally` block, writes `status.json` into the run's sandbox — `{run_id, status, started_at,
+finished_at, total_seconds}` (plus `error` on failure). `total_seconds` is the total wall-clock
+running time. Written for both success and error paths; best-effort (`build_status` is pure/unit
+tested, `write_status` swallows I/O errors so bookkeeping never fails a run). It lands in the sandbox
+so it shows up in the file browser like any other deliverable.
+
 **A workflow definition** carries: `inputs_spec`, `action_prompt` (what the agent does),
 `eval_prompt` (how to summarize), `tools` (JSON list, e.g. `["puppeteer"]`), and `model`
 (`''`/fable/opus/sonnet/haiku — `''` = the agent host's default).

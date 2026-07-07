@@ -160,12 +160,39 @@ def test_handle_success(monkeypatch_result="summary", should_fail=False):
     else:
         assert "done" in statuses and web.reports[-1]["result"] == "summary"
 
+    # status.json is written to the sandbox with the run's total running time.
+    import json
+    status_file = worker.SANDBOX_ROOT / "7" / "status.json"
+    assert status_file.exists()
+    data = json.loads(status_file.read_text())
+    assert data["run_id"] == 7
+    assert data["status"] == ("error" if should_fail else "done")
+    assert isinstance(data["total_seconds"], (int, float)) and data["total_seconds"] >= 0
+    assert data["started_at"] and data["finished_at"]
+    if should_fail:
+        assert data["error"] == "boom"
+    else:
+        assert "error" not in data
+
+
+def test_build_status():
+    from datetime import datetime, timezone
+    t0 = datetime(2026, 7, 7, 12, 0, 0, tzinfo=timezone.utc)
+    t1 = datetime(2026, 7, 7, 12, 0, 5, tzinfo=timezone.utc)
+    ok = worker.build_status(3, "done", t0, t1, 5.1234)
+    assert ok == {"run_id": 3, "status": "done", "started_at": t0.isoformat(),
+                  "finished_at": t1.isoformat(), "total_seconds": 5.123}
+    assert "error" not in ok                               # no error key on success
+    bad = worker.build_status(4, "error", t0, t1, 1.0, "boom")
+    assert bad["error"] == "boom" and bad["status"] == "error"
+
 
 if __name__ == "__main__":
     test_tools_config()
     test_compose_prompt()
     test_chain_loop()
     test_files_api()
+    test_build_status()
     test_handle_success()                       # success path
     test_handle_success(should_fail=True)       # failure path reports error
     print("OK")

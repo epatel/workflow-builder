@@ -1,3 +1,5 @@
+<a href="https://claude.ai"><img src="made-with-claude.png" height="32" alt="Made with Claude"></a>
+
 # Workflow Builder
 
 Define agent workflows in a browser, run them, watch progress, read the result.

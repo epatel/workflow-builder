@@ -61,7 +61,9 @@ sandbox, the previous step's result, the handover note, and any filled inputs. B
 workflow page (the button reads "Add endpoint" when none exists, and shows the endpoint name once
 defined). The endpoint has a globally unique name and its own bearer token (editable, or
 regenerate a random one with a click), letting external callers start runs without a browser
-session:
+session. An **ⓘ** button next to the endpoint name opens a dialog with a ready-to-run `curl`
+example (pre-filled with the endpoint URL, token, and the workflow's input fields) and a Copy
+button:
 
 ```sh
 curl -X POST https://…/workflow/api/endpoints/<name> \

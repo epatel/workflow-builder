@@ -115,8 +115,8 @@ def list_files(sandbox: Path, cap: int = 100) -> list[str]:
 
 def filter_handover_inputs(inputs_spec: str, inputs: dict) -> tuple[dict, list[str]]:
     """Keep only handover inputs whose keys the next workflow declares. Pure — unit tested.
-    Returns (kept, dropped_keys). An unparseable/empty spec keeps everything (no contract
-    to enforce)."""
+    Returns (kept, dropped_keys). An empty spec declares nothing, so every input is dropped;
+    an unparseable spec has no contract to enforce, so everything is kept."""
     try:
         keys = {f["key"] for f in json.loads(inputs_spec or "[]") if isinstance(f, dict) and "key" in f}
     except (ValueError, TypeError):

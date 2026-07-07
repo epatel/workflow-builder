@@ -38,6 +38,12 @@ Claude Agent SDK in a per-run sandbox.
 - 2026-06-21 — Bug found & fixed by new tests: `start_run` checked `isinstance(f, fastapi.UploadFile)`,
   but `request.form()` yields **starlette**'s `UploadFile` (the parent class), so every file upload was
   silently dropped. Fixed by importing `UploadFile` from `starlette.datastructures` in `web/app.py`.
+- 2026-07-07 — `make test` fixed on Python 3.14: bumped `pydantic` `2.10.4`→`2.13.4` (old pin's
+  `pydantic-core` had no cp314 wheel and failed to compile). Also fixed `agent/test_agent.py::test_chain_loop`,
+  which contradicted `test_runner.py::test_filter_handover_inputs`: it expected an *undeclared* handover
+  key to survive the drop-undeclared filter. Made the routed workflows declare the `to` input so the
+  handover threading is genuine; corrected the `filter_handover_inputs` docstring (empty spec drops all,
+  only an unparseable spec keeps everything).
 - 2026-06-21 — Sandbox file browsing is a **live passthrough**, not a copy-back: agent serves a read-only `/sandbox` file API in-process (`home:9006`, Apache `/workflow-agent`, token-auth, traversal-guarded); web proxies after authorizing the run owner. This adds an inbound server on the agent host (supersedes the earlier "agent needs no Apache" note). **Locked.** See cards/run-files.md.
 
 ## Current state / handoff
@@ -87,8 +93,9 @@ Tests: beyond the original smoke suites there are now two deeper suites wired in
 end-to-end password reset, upload-filename traversal sanitization, age-based run purge) and
 `agent/test_runner.py` (`_run_query` result-extraction: ResultMessage preferred, fallback to assistant
 text, error result raises). The upload test caught a real bug — see Decisions (starlette vs fastapi
-`UploadFile`). Note: on Python 3.14 the pinned `pydantic-core` has no wheel; build the venvs with
-Python 3.12 (`make test` uses whatever `python3` is — use a 3.12 interpreter).
+`UploadFile`). `make test` now builds and passes on Python 3.14: `pydantic` was bumped `2.10.4`→`2.13.4`
+(`pydantic-core` 2.46.4 ships a cp314 wheel); the rest of the stack already had 3.14 wheels, so no
+3.12-specific interpreter is required anymore.
 
 Board shortcuts added for `make test` and `make deploy`. The Makefile now has an aggregate
 `deploy` target (= `deploy-web` + `deploy-agent`) so the shortcut runs both services in one shot.

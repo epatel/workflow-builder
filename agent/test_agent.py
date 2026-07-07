@@ -99,14 +99,16 @@ def _run_chain(routes, defs):
 
 
 def test_chain_loop():
-    defs = {"B": {"name": "B"}, "C": {"name": "C"}}
+    # B and C declare the "to" input so the handover value survives the drop-undeclared filter.
+    defs = {"B": {"name": "B", "inputs_spec": '[{"key":"to"}]'},
+            "C": {"name": "C", "inputs_spec": '[{"key":"to"}]'}}
     # (a) A -> B -> C, then stop
     result, web = _run_chain(["B", "C", None], defs)
     assert result == "result-C"
     assert web.resolved == ["B", "C"]
     # handover note + source name + filled inputs thread to the next step
     assert web.steps[1]["previous_name"] == "A" and web.steps[1]["handover"] == "note for B"
-    assert web.steps[1]["inputs"] == {"to": "B"}          # next_workflow's inputs become the step's
+    assert web.steps[1]["inputs"] == {"to": "B"}          # declared handover input threads through
     assert web.steps[2]["previous_name"] == "B" and web.steps[2]["handover"] == "note for C"
     assert web.steps[0]["inputs"] == {}                   # first step keeps its own (empty) inputs
 

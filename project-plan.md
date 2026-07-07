@@ -62,6 +62,13 @@ long-standing "Account default" option real: a workflow with `model=''` now reso
 run-starter's account default at claim time (`claim_next_run`), falling back to the host default
 when that's also empty. Covered by `web/test_smoke.py`. See cards/accounts-auth.md.
 
+UI: API endpoints are now **one per workflow**. The workflow page shows a single button: it reads
+"Add endpoint" when none is defined and shows the endpoint's name once it is; either way it opens
+the same config `<dialog>` to add, edit the token, or delete. `create_endpoint` enforces the
+one-per-workflow limit server-side (bounces with an `ep_error` if a second is attempted). Covered by
+`web/test_smoke.py::test_endpoints`. See cards/run-queue.md. (`endpoints` table is unchanged; the
+global-unique `name` still holds.)
+
 UI: the "New workflow" `+` next to the Workflows heading is now a proper circular icon button —
 reusable `.icon-btn` class in `base.html` (equal 1.9rem dims, flex-centered glyph, hover/active
 feedback), replacing the old asymmetric-padding oval.

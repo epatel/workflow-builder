@@ -7,9 +7,12 @@ The run lifecycle and the agent-facing API contract. Web side: `web/app.py`. Age
 (`POST /workflows/{id}/run`): text inputs go into `inputs` JSON; uploaded files are saved on the
 web host under `uploads/<run_id>/` and referenced as `{"file": name}` in `inputs`.
 
-**Workflow endpoints (external trigger API).** A workflow owner/admin can attach named endpoints
-(table `endpoints`: globally unique `name` + per-endpoint bearer `token`, managed on the workflow
-page — token is editable or regenerable at a click). `POST /api/endpoints/{name}` with that token
+**Workflow endpoint (external trigger API).** A workflow owner/admin can attach a single named
+endpoint (table `endpoints`: globally unique `name` + bearer `token`; one per workflow, enforced in
+`create_endpoint`). It's managed on the workflow page: when none exists the button reads
+"Add endpoint" and opens the config dialog; once defined the button shows the endpoint name and
+opens the same dialog to edit the token or delete it (token editable/regenerable at a click).
+`POST /api/endpoints/{name}` with that token
 creates a pending run owned by the **workflow's owner**; inputs come as a JSON object (a string
 for a `file` input is saved as `uploads/<run_id>/<key>.txt`) or as `multipart/form-data` with real
 file parts for `file` inputs. Returns `{run_id, status, status_url}`.

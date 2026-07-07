@@ -76,7 +76,10 @@ Copy button. Only rendered when an endpoint exists (`workflow_view.html`). See c
 
 UI: the "New workflow" `+` next to the Workflows heading is now a proper circular icon button —
 reusable `.icon-btn` class in `base.html` (equal 1.9rem dims, flex-centered glyph, hover/active
-feedback), replacing the old asymmetric-padding oval.
+feedback), replacing the old asymmetric-padding oval. The workflow-view "show curl" info (ⓘ)
+button uses `.icon-btn secondary`; a `.icon-btn.secondary` rule now drops the redundant outer
+border (the glyph is already a circled-i) and `.icon-btn` gets `vertical-align:middle` so it lines
+up with the taller adjacent endpoint-name button.
 
 **Deploy gotcha (seen 2026-06-21):** `make deploy-web` only rsyncs files — it does NOT restart the
 uvicorn process. A "not found" / 404 on a route that exists in the deployed `app.py` (e.g. `/runs`)

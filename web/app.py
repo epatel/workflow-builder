@@ -708,6 +708,9 @@ def create_endpoint(request: Request, wid: int, name: str = Form(...), token: st
     conn = connect()
     try:
         _get_workflow(conn, wid, user, for_edit=True)
+        if conn.execute("SELECT 1 FROM endpoints WHERE workflow_id=?", (wid,)).fetchone():
+            return _ep_error(request, wid, "This workflow already has an endpoint. "
+                                           "Delete it first to define a different one.")
         try:
             conn.execute("INSERT INTO endpoints (workflow_id, name, token) VALUES (?,?,?)",
                          (wid, name, token.strip() or secrets.token_urlsafe(32)))

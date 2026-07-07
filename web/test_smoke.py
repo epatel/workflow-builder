@@ -301,22 +301,25 @@ def test_endpoints():
                      "action_prompt": "x", "eval_prompt": "y"}, follow_redirects=False)
     wid = int(wf.headers["location"].split("/")[-1])
 
-    # create: bad name and duplicate bounce back with ep_error (dialog reopens); good name ok
+    # create: a bad name bounces back with ep_error (dialog reopens); a good name is ok
     r = client.post(f"/workflows/{wid}/endpoints", data={"name": "Bad Name!"},
                     follow_redirects=False)
     assert r.status_code == 303 and "ep_error=" in r.headers["location"]
     r = client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
                     follow_redirects=False)
     assert r.status_code == 303 and "ep_error" not in r.headers["location"]
-    r = client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1"},
+
+    # only one endpoint per workflow: a second create bounces back with ep_error
+    r = client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-1b"},
                     follow_redirects=False)
     assert r.status_code == 303 and "ep_error=" in r.headers["location"]
-    assert "already taken" in client.get(r.headers["location"]).text  # shown in the dialog
+    assert "already has an endpoint" in client.get(r.headers["location"]).text
 
     conn = appmod.connect()
     ep = conn.execute("SELECT * FROM endpoints WHERE name='hooked-1'").fetchone()
     token = ep["token"]
     assert token in client.get(f"/workflows/{wid}").text  # shown to the owner
+    assert "hooked-1" in client.get(f"/workflows/{wid}").text  # name shown on the button
 
     # token is editable, empty is rejected
     client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "my-own-secret"},
@@ -329,8 +332,16 @@ def test_endpoints():
     client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": token},
                 follow_redirects=False)  # restore for the calls below
 
-    # a supplied token is kept on create
-    client.post(f"/workflows/{wid}/endpoints", data={"name": "hooked-2", "token": "preset"},
+    # on a fresh workflow: a name already taken globally bounces back...
+    wf2 = client.post("/workflows", data={"name": "Hooked2", "inputs_spec": spec,
+                      "action_prompt": "x", "eval_prompt": "y"}, follow_redirects=False)
+    wid2 = int(wf2.headers["location"].split("/")[-1])
+    r = client.post(f"/workflows/{wid2}/endpoints", data={"name": "hooked-1"},
+                    follow_redirects=False)  # duplicate global name
+    assert r.status_code == 303 and "ep_error=" in r.headers["location"]
+    assert "already taken" in client.get(r.headers["location"]).text
+    # ...and a supplied token is kept on create
+    client.post(f"/workflows/{wid2}/endpoints", data={"name": "hooked-2", "token": "preset"},
                 follow_redirects=False)
     assert conn.execute("SELECT token FROM endpoints WHERE name='hooked-2'").fetchone()[0] == "preset"
 

@@ -16,38 +16,39 @@
 </form>
 
 {% if can_edit %}
-<h2>API endpoints</h2>
+{% set endpoint = endpoints[0] if endpoints else None %}
+<h2>API endpoint</h2>
 <p>
-  {% if endpoints %}<span class="mono">{{ endpoints|map(attribute='name')|join(', ') }}</span>
-  {% else %}<span style="color:var(--muted)">None yet.</span>{% endif %}
-  <button class="secondary" onclick="document.getElementById('ep-dialog').showModal()">Config endpoint</button>
+  <button class="secondary" onclick="document.getElementById('ep-dialog').showModal()">
+    {% if endpoint %}{{ endpoint.name }}{% else %}Add endpoint{% endif %}</button>
 </p>
 
 <dialog id="ep-dialog"
         style="border:1px solid var(--border);border-radius:var(--radius);
                background:var(--surface);color:var(--fg);max-width:34rem;width:90%;
                padding:1.2rem 1.4rem">
-  <h2 style="margin-top:0">API endpoints</h2>
+  <h2 style="margin-top:0">API endpoint</h2>
   {% if ep_error %}<p class="err">{{ ep_error }}</p>{% endif %}
   <p style="color:var(--muted)">POST the inputs (a JSON object, or multipart form-data with file
      parts for file inputs) with the token as a bearer token to start a run; the response carries
      the run id. Poll the run URL for status, and when done fetch result files from
      <span class="mono">…/data/&lt;item&gt;</span>.</p>
-  {% for ep in endpoints %}
-  <p class="mono">POST {{ api_prefix }}/api/endpoints/{{ ep.name }}<br>
-     GET&nbsp; {{ api_prefix }}/api/endpoints/{{ ep.name }}/&lt;run_id&gt;[/data/&lt;item&gt;]</p>
-  <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ ep.id }}">
+  {% if endpoint %}
+  <p class="mono">POST {{ api_prefix }}/api/endpoints/{{ endpoint.name }}<br>
+     GET&nbsp; {{ api_prefix }}/api/endpoints/{{ endpoint.name }}/&lt;run_id&gt;[/data/&lt;item&gt;]</p>
+  <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ endpoint.id }}">
     <label>Bearer token</label>
-    <input name="token" value="{{ ep.token }}" required>
+    <input name="token" value="{{ endpoint.token }}" required>
     <p><button>Save token</button>
        <button type="button" class="secondary" onclick="genToken(this.form.token)">Generate random</button></p>
   </form>
-  <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ ep.id }}/delete"
-        data-confirm="Delete endpoint {{ ep.name }}?">
+  <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ endpoint.id }}/delete"
+        data-confirm="Delete endpoint {{ endpoint.name }}?">
     <button class="danger">Delete endpoint</button>
+    <button type="button" class="secondary"
+            onclick="document.getElementById('ep-dialog').close()">Close</button>
   </form>
-  <hr style="border:none;border-top:1px solid var(--border);margin:1.1rem 0">
-  {% endfor %}
+  {% else %}
   <form method="post" action="workflows/{{ wf.id }}/endpoints">
     <label>Endpoint name (unique, lowercase)</label>
     <input name="name" pattern="[a-z0-9][a-z0-9_-]{1,63}" required>
@@ -58,6 +59,7 @@
        <button type="button" class="secondary"
                onclick="document.getElementById('ep-dialog').close()">Close</button></p>
   </form>
+  {% endif %}
 </dialog>
 
 <script>

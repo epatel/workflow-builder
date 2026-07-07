@@ -57,8 +57,9 @@ narrated step by step on the run page. Later steps get no new human input — th
 sandbox, the previous step's result, the handover note, and any filled inputs. Bounded by
 `MAX_CHAIN_STEPS` (default 10).
 
-**API endpoints:** a workflow's owner (or an admin) can attach named endpoints to it on the
-workflow page. Each endpoint has a globally unique name and its own bearer token (editable, or
+**API endpoint:** a workflow's owner (or an admin) can attach a single named endpoint to it on the
+workflow page (the button reads "Add endpoint" when none exists, and shows the endpoint name once
+defined). The endpoint has a globally unique name and its own bearer token (editable, or
 regenerate a random one with a click), letting external callers start runs without a browser
 session:
 

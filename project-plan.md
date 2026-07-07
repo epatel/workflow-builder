@@ -69,6 +69,11 @@ one-per-workflow limit server-side (bounces with an `ep_error` if a second is at
 `web/test_smoke.py::test_endpoints`. See cards/run-queue.md. (`endpoints` table is unchanged; the
 global-unique `name` still holds.)
 
+UI: next to the endpoint-name button an **ⓘ icon-button** opens a read-only dialog showing a
+ready-to-run `curl` example — the full POST URL (`location.origin` + prefix + endpoint name, built
+client-side), the bearer token, and a JSON body pre-filled from the workflow's input keys — with a
+Copy button. Only rendered when an endpoint exists (`workflow_view.html`). See cards/run-queue.md.
+
 UI: the "New workflow" `+` next to the Workflows heading is now a proper circular icon button —
 reusable `.icon-btn` class in `base.html` (equal 1.9rem dims, flex-centered glyph, hover/active
 feedback), replacing the old asymmetric-padding oval.

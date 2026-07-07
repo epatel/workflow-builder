@@ -21,6 +21,10 @@
 <p>
   <button class="secondary" onclick="document.getElementById('ep-dialog').showModal()">
     {% if endpoint %}{{ endpoint.name }}{% else %}Add endpoint{% endif %}</button>
+  {% if endpoint %}
+  <button type="button" class="icon-btn secondary" title="Show curl example"
+          aria-label="Show curl example" onclick="showCurl()">&#9432;</button>
+  {% endif %}
 </p>
 
 <dialog id="ep-dialog"
@@ -62,7 +66,52 @@
   {% endif %}
 </dialog>
 
+{% if endpoint %}
+<dialog id="curl-dialog"
+        style="border:1px solid var(--border);border-radius:var(--radius);
+               background:var(--surface);color:var(--fg);max-width:44rem;width:90%;
+               padding:1.2rem 1.4rem">
+  <h2 style="margin-top:0">Call this endpoint</h2>
+  <p style="color:var(--muted)">Example request using your endpoint's token and input fields.
+     POST the inputs as a JSON object; the response carries the run id.</p>
+  <pre id="curl-example" class="mono"
+       style="white-space:pre-wrap;word-break:break-all;background:var(--soft);
+              padding:.8rem;border-radius:var(--radius);overflow:auto;margin:0"></pre>
+  <p><button type="button" class="secondary" onclick="copyCurl(this)">Copy</button>
+     <button type="button" class="secondary"
+             onclick="document.getElementById('curl-dialog').close()">Close</button></p>
+</dialog>
+{% endif %}
+
 <script>
+{% if endpoint %}
+const EP_INPUTS = {{ inputs|tojson }};
+const EP_NAME = {{ endpoint.name|tojson }};
+const EP_TOKEN = {{ endpoint.token|tojson }};
+const EP_PREFIX = {{ api_prefix|tojson }};
+function buildCurl(){
+  const url = location.origin + EP_PREFIX + "/api/endpoints/" + EP_NAME;
+  const body = {};
+  for (const f of EP_INPUTS){
+    body[f.key] = f.type === 'file' ? "file contents or text" : "";
+  }
+  const json = JSON.stringify(body, null, 2);
+  return "curl -X POST " + url + " \\\n" +
+         '  -H "Authorization: Bearer ' + EP_TOKEN + '" \\\n' +
+         '  -H "Content-Type: application/json" \\\n' +
+         "  -d '" + json + "'";
+}
+function showCurl(){
+  document.getElementById('curl-example').textContent = buildCurl();
+  document.getElementById('curl-dialog').showModal();
+}
+function copyCurl(btn){
+  navigator.clipboard.writeText(buildCurl()).then(() => {
+    const prev = btn.textContent; btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = prev; }, 1200);
+  });
+}
+{% endif %}
 function genToken(input){
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
   input.value = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => chars[b & 63]).join("");

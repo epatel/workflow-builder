@@ -12,6 +12,9 @@ endpoint (table `endpoints`: globally unique `name` + bearer `token`; one per wo
 `create_endpoint`). It's managed on the workflow page: when none exists the button reads
 "Add endpoint" and opens the config dialog; once defined the button shows the endpoint name and
 opens the same dialog to edit the token or delete it (token editable/regenerable at a click).
+Next to the name button, an **ⓘ (info) icon-button** opens a separate read-only dialog with a
+ready-to-run `curl` example (built client-side: `location.origin` + prefix + endpoint name, the
+bearer token, and a JSON body pre-filled with the workflow's input keys) plus a Copy button.
 `POST /api/endpoints/{name}` with that token
 creates a pending run owned by the **workflow's owner**; inputs come as a JSON object (a string
 for a `file` input is saved as `uploads/<run_id>/<key>.txt`) or as `multipart/form-data` with real

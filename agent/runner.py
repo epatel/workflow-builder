@@ -206,6 +206,9 @@ async def _run_step(wf: dict, sandbox: Path, inputs: dict, files: list[str],
     opts = dict(cwd=str(sandbox), permission_mode="bypassPermissions",
                 allowed_tools=allowed, mcp_servers=mcp_servers,
                 max_turns=int(os.getenv("MAX_TURNS", "40")),
+                # A single large tool result (e.g. a fetched web page) can exceed the
+                # SDK's 1 MB default message buffer and kill the run.
+                max_buffer_size=10 * 1024 * 1024,
                 model=(wf.get("model") or MODEL))   # per-workflow model; '' -> host default
 
     action_prompt = (wf["action_prompt"] +

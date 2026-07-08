@@ -34,7 +34,9 @@ immediately and fail the run.
    names arrive at the agent as inline dicts, disabled names are dropped with a run-log note, and
    unknown names pass through to the agent's `MCP_TOOLS` fallback dict in `runner.py`.
 3. **Action pass:** `query()` with `cwd=sandbox`, `permission_mode="bypassPermissions"` (runs
-   non-interactively), `max_turns`, and `model = wf.model or AGENT_MODEL env or SDK default`. The
+   non-interactively), `max_turns`, `max_buffer_size=10 MB` (the SDK's 1 MB default kills the run
+   when a single tool result — e.g. a fetched web page — exceeds it), and
+   `model = wf.model or AGENT_MODEL env or SDK default`. The
    action prompt is augmented to tell the agent to write only inside the sandbox cwd (files outside
    are discarded) and to narrate progress via `log_message`. Collect the final
    `ResultMessage.result`; a result with `is_error` raises.

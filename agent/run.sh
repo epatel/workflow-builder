@@ -6,4 +6,6 @@ cd "$(dirname "$0")"
 export PATH="$HOME/.local/bin:$PATH"
 [ -d .venv ] || python3 -m venv .venv
 ./.venv/bin/pip install -q -r requirements.txt
-exec ./.venv/bin/python worker.py
+# -u: unbuffered stdout, so `> run.log` shows lines as they happen (buffered output
+# was lost entirely when the screen session was killed)
+exec ./.venv/bin/python -u worker.py

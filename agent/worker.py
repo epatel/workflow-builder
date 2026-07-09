@@ -27,9 +27,12 @@ HTTP_PORT = int(os.getenv("AGENT_HTTP_PORT", "9006"))  # sandbox file API (behin
 
 
 def build_status(run_id, status: str, started_at: datetime, finished_at: datetime,
-                 elapsed_seconds: float, error: str | None = None) -> dict:
+                 elapsed_seconds: float, error: str | None = None,
+                 files: list[str] | None = None) -> dict:
     """Assemble the status.json payload for a finished run. Pure — unit tested.
-    total_seconds is the wall-clock running time (monotonic), rounded to milliseconds."""
+    total_seconds is the wall-clock running time (monotonic), rounded to milliseconds.
+    files is the sandbox listing at finish time (excludes status.json itself — it is
+    listed before the write)."""
     data = {
         "run_id": run_id,
         "status": status,
@@ -39,6 +42,8 @@ def build_status(run_id, status: str, started_at: datetime, finished_at: datetim
     }
     if error is not None:
         data["error"] = error
+    if files is not None:
+        data["files"] = files
     return data
 
 
@@ -68,8 +73,12 @@ async def handle(web: WebClient, job: dict):
         print(f"[run {run['id']}] error: {e}")
     finally:
         elapsed = time.monotonic() - t0
+        try:
+            files = runner.list_files(sandbox)
+        except Exception:  # listing is bookkeeping too — never fail the run over it
+            files = None
         write_status(sandbox, build_status(run["id"], status, started_at,
-                                           datetime.now(timezone.utc), elapsed, error))
+                                           datetime.now(timezone.utc), elapsed, error, files))
         print(f"[run {run['id']}] total running time {elapsed:.3f}s")
 
 

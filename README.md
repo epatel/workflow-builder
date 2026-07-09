@@ -49,8 +49,8 @@ tools are skipped with a note in the run log.
 
 A run collects the inputs, drops files in `sandboxes/<run_id>/`, runs the action prompt,
 then a read-only eval pass that produces the summary. When the run ends the worker writes
-`status.json` into the sandbox with the run's **total running time** (`total_seconds`) alongside its
-status and start/finish timestamps. The run page shows the live agent log, the rendered result,
+`status.json` into the sandbox with the run's **total running time** (`total_seconds`), its status
+and start/finish timestamps, and a `files` list of the sandbox contents at finish time. The run page shows the live agent log, the rendered result,
 and — once the run finishes — an inline **Files** section listing the sandbox (view/download per
 file); during a run the "Browse files" link serves the same listing live.
 

@@ -168,6 +168,7 @@ def test_handle_success(monkeypatch_result="summary", should_fail=False):
     assert data["run_id"] == 7
     assert data["status"] == ("error" if should_fail else "done")
     assert isinstance(data["total_seconds"], (int, float)) and data["total_seconds"] >= 0
+    assert isinstance(data["files"], list)   # sandbox listing at finish time
     assert data["started_at"] and data["finished_at"]
     if should_fail:
         assert data["error"] == "boom"
@@ -185,6 +186,9 @@ def test_build_status():
     assert "error" not in ok                               # no error key on success
     bad = worker.build_status(4, "error", t0, t1, 1.0, "boom")
     assert bad["error"] == "boom" and bad["status"] == "error"
+    assert "files" not in ok                               # no files key when not listed
+    listed = worker.build_status(5, "done", t0, t1, 1.0, files=["inputs.json", "out/index.html"])
+    assert listed["files"] == ["inputs.json", "out/index.html"]
 
 
 if __name__ == "__main__":

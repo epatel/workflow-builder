@@ -9,7 +9,9 @@ web host under `uploads/<run_id>/` and referenced as `{"file": name}` in `inputs
 
 **Workflow endpoint (external trigger API).** A workflow owner/admin can attach a single named
 endpoint (table `endpoints`: globally unique `name` + bearer `token`; one per workflow, enforced in
-`create_endpoint`). It's managed on the workflow page: when none exists the button reads
+`create_endpoint`). It's managed on the workflow **edit** page (`workflow_edit.html`, existing
+workflows only — the section doesn't render on "new"; endpoint form errors bounce back to
+`/workflows/{wid}/edit?ep_error=…`): when none exists the button reads
 "Add endpoint" and opens the config dialog; once defined the button shows the endpoint name and
 opens the same dialog to edit the token or delete it (token editable/regenerable at a click).
 Next to the name button, an **ⓘ (info) icon-button** opens a separate read-only dialog with a

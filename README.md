@@ -50,7 +50,9 @@ tools are skipped with a note in the run log.
 A run collects the inputs, drops files in `sandboxes/<run_id>/`, runs the action prompt,
 then a read-only eval pass that produces the summary. When the run ends the worker writes
 `status.json` into the sandbox with the run's **total running time** (`total_seconds`) alongside its
-status and start/finish timestamps.
+status and start/finish timestamps. The run page shows the live agent log, the rendered result,
+and — once the run finishes — an inline **Files** section listing the sandbox (view/download per
+file); during a run the "Browse files" link serves the same listing live.
 
 **Chaining:** an eval prompt can call `next_workflow("Workflow name", "handover note", inputs)` to
 hand off to another workflow, which runs next **in the same sandbox** (it sees every file produced so
@@ -62,8 +64,8 @@ sandbox, the previous step's result, the handover note, and any filled inputs. B
 `MAX_CHAIN_STEPS` (default 10).
 
 **API endpoint:** a workflow's owner (or an admin) can attach a single named endpoint to it on the
-workflow page (the button reads "Add endpoint" when none exists, and shows the endpoint name once
-defined). The endpoint has a globally unique name and its own bearer token (editable, or
+workflow **edit** page (the button reads "Add endpoint" when none exists, and shows the endpoint
+name once defined). The endpoint has a globally unique name and its own bearer token (editable, or
 regenerate a random one with a click), letting external callers start runs without a browser
 session. An **ⓘ** button next to the endpoint name opens a dialog with a ready-to-run `curl`
 example (pre-filled with the endpoint URL, token, and the workflow's input fields) and a Copy

@@ -2,7 +2,8 @@
 {% block content %}
 <h1>{{ wf.name }}</h1>
 <p style="color:var(--muted)">{{ set_names|join(', ') if set_names else 'private' }}
-   · model: {{ wf.model or 'account default' }}</p>
+   · model: {{ wf.model or 'account default' }}
+   {% if can_edit %} · <a href="workflows/{{ wf.id }}/edit">edit</a>{% endif %}</p>
 
 <h2>Run it</h2>
 <form method="post" action="workflows/{{ wf.id }}/run" enctype="multipart/form-data">
@@ -14,111 +15,6 @@
   {% endfor %}
   <p><button>Start workflow</button></p>
 </form>
-
-{% if can_edit %}
-{% set endpoint = endpoints[0] if endpoints else None %}
-<h2>API endpoint</h2>
-<p>
-  <button class="secondary" onclick="document.getElementById('ep-dialog').showModal()">
-    {% if endpoint %}{{ endpoint.name }}{% else %}Add endpoint{% endif %}</button>
-  {% if endpoint %}
-  <button type="button" class="icon-btn secondary" title="Show curl example"
-          aria-label="Show curl example" onclick="showCurl()">&#9432;</button>
-  {% endif %}
-</p>
-
-<dialog id="ep-dialog"
-        style="border:1px solid var(--border);border-radius:var(--radius);
-               background:var(--surface);color:var(--fg);max-width:34rem;width:90%;
-               padding:1.2rem 1.4rem">
-  <h2 style="margin-top:0">API endpoint</h2>
-  {% if ep_error %}<p class="err">{{ ep_error }}</p>{% endif %}
-  <p style="color:var(--muted)">POST the inputs (a JSON object, or multipart form-data with file
-     parts for file inputs) with the token as a bearer token to start a run; the response carries
-     the run id. Poll the run URL for status, and when done fetch result files from
-     <span class="mono">…/data/&lt;item&gt;</span>.</p>
-  {% if endpoint %}
-  <p class="mono">POST {{ api_prefix }}/api/endpoints/{{ endpoint.name }}<br>
-     GET&nbsp; {{ api_prefix }}/api/endpoints/{{ endpoint.name }}/&lt;run_id&gt;[/data/&lt;item&gt;]</p>
-  <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ endpoint.id }}">
-    <label>Bearer token</label>
-    <input name="token" value="{{ endpoint.token }}" required>
-    <p><button>Save token</button>
-       <button type="button" class="secondary" onclick="genToken(this.form.token)">Generate random</button></p>
-  </form>
-  <form method="post" action="workflows/{{ wf.id }}/endpoints/{{ endpoint.id }}/delete"
-        data-confirm="Delete endpoint {{ endpoint.name }}?">
-    <button class="danger">Delete endpoint</button>
-    <button type="button" class="secondary"
-            onclick="document.getElementById('ep-dialog').close()">Close</button>
-  </form>
-  {% else %}
-  <form method="post" action="workflows/{{ wf.id }}/endpoints">
-    <label>Endpoint name (unique, lowercase)</label>
-    <input name="name" pattern="[a-z0-9][a-z0-9_-]{1,63}" required>
-    <label>Bearer token (leave empty to generate)</label>
-    <input name="token">
-    <p><button>Add endpoint</button>
-       <button type="button" class="secondary" onclick="genToken(this.form.token)">Generate random</button>
-       <button type="button" class="secondary"
-               onclick="document.getElementById('ep-dialog').close()">Close</button></p>
-  </form>
-  {% endif %}
-</dialog>
-
-{% if endpoint %}
-<dialog id="curl-dialog"
-        style="border:1px solid var(--border);border-radius:var(--radius);
-               background:var(--surface);color:var(--fg);max-width:44rem;width:90%;
-               padding:1.2rem 1.4rem">
-  <h2 style="margin-top:0">Call this endpoint</h2>
-  <p style="color:var(--muted)">Example request using your endpoint's token and input fields.
-     POST the inputs as a JSON object; the response carries the run id.</p>
-  <pre id="curl-example" class="mono"
-       style="white-space:pre-wrap;word-break:break-all;background:var(--soft);
-              padding:.8rem;border-radius:var(--radius);overflow:auto;margin:0"></pre>
-  <p><button type="button" class="secondary" onclick="copyCurl(this)">Copy</button>
-     <button type="button" class="secondary"
-             onclick="document.getElementById('curl-dialog').close()">Close</button></p>
-</dialog>
-{% endif %}
-
-<script>
-{% if endpoint %}
-const EP_INPUTS = {{ inputs|tojson }};
-const EP_NAME = {{ endpoint.name|tojson }};
-const EP_TOKEN = {{ endpoint.token|tojson }};
-const EP_PREFIX = {{ api_prefix|tojson }};
-function buildCurl(){
-  const url = location.origin + EP_PREFIX + "/api/endpoints/" + EP_NAME;
-  const body = {};
-  for (const f of EP_INPUTS){
-    body[f.key] = f.type === 'file' ? "file contents or text" : "";
-  }
-  const json = JSON.stringify(body, null, 2);
-  return "curl -X POST " + url + " \\\n" +
-         '  -H "Authorization: Bearer ' + EP_TOKEN + '" \\\n' +
-         '  -H "Content-Type: application/json" \\\n' +
-         "  -d '" + json + "'";
-}
-function showCurl(){
-  document.getElementById('curl-example').textContent = buildCurl();
-  document.getElementById('curl-dialog').showModal();
-}
-function copyCurl(btn){
-  navigator.clipboard.writeText(buildCurl()).then(() => {
-    const prev = btn.textContent; btn.textContent = "Copied";
-    setTimeout(() => { btn.textContent = prev; }, 1200);
-  });
-}
-{% endif %}
-function genToken(input){
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-  input.value = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => chars[b & 63]).join("");
-}
-{% if ep_error %}document.getElementById('ep-dialog').showModal();{% endif %}
-</script>
-{% endif %}
 
 <h2>Your recent runs</h2>
 <table>

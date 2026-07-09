@@ -18,6 +18,29 @@
   {% endif %}
   {% if run.error %}<p class="err">{{ run.error }}</p>{% endif %}
 </div>
+
+{% if run.status in ('done', 'error') %}
+<h2>Files</h2>
+{% if files %}
+<table>
+  <tr><th>File</th><th>Size</th><th></th></tr>
+  {% for f in files %}
+  <tr>
+    <td><code>{{ f.path }}</code></td>
+    <td>{{ f.size }} B</td>
+    <td>
+      <a href="runs/{{ run.id }}/view/{{ f.path }}">view</a> ·
+      <a href="runs/{{ run.id }}/files/{{ f.path }}?dl=1">download</a>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% elif files_error %}
+<p style="color:var(--muted)">{{ files_error }}</p>
+{% else %}
+<p style="color:var(--muted)">No files in this run's sandbox.</p>
+{% endif %}
+{% endif %}
 <script>
 // ponytail: poll until terminal; SSE only if this feels laggy
 function renderLog(logs){

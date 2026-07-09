@@ -21,8 +21,11 @@ Apache at `/workflow-agent`):
 - If `AGENT_FILES_URL` is unset or the agent host is unreachable, the files page shows a notice
   rather than erroring the run view.
 
-The run page links to it ("Browse files"). Authorization is enforced on the web side; the agent API
-trusts the token. Files appear as soon as the agent creates them (live), not only after completion.
+The run page links to it ("Browse files"), and once a run is terminal (`done`/`error`) the run page
+also renders a **Files** section inline — same listing via `_sandbox_listing` (shared with
+`run_files`, never raises; listing problems render as a muted notice). Live runs skip the inline
+fetch (the page reloads on completion) and use the Browse files link, which lists files as the agent
+creates them. Authorization is enforced on the web side; the agent API trusts the token.
 
 **Inline viewer** (`GET /runs/{id}/view/{path}`, `file_view.html`): renders by extension — images as
 `<img>` (no fetch, points at the raw passthrough; raster only — svg is shown as code), text/code

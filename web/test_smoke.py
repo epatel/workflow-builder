@@ -318,8 +318,10 @@ def test_endpoints():
     conn = appmod.connect()
     ep = conn.execute("SELECT * FROM endpoints WHERE name='hooked-1'").fetchone()
     token = ep["token"]
-    assert token in client.get(f"/workflows/{wid}").text  # shown to the owner
-    assert "hooked-1" in client.get(f"/workflows/{wid}").text  # name shown on the button
+    # endpoint config lives on the edit page, not the (run-it) view page
+    assert token in client.get(f"/workflows/{wid}/edit").text  # shown to the owner
+    assert "hooked-1" in client.get(f"/workflows/{wid}/edit").text  # name shown on the button
+    assert token not in client.get(f"/workflows/{wid}").text
 
     # token is editable, empty is rejected
     client.post(f"/workflows/{wid}/endpoints/{ep['id']}", data={"token": "my-own-secret"},

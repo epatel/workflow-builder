@@ -627,7 +627,7 @@ def _get_workflow(conn, wid, user, *, for_edit=False):
 
 
 @app.get("/workflows/{wid}", response_class=HTMLResponse)
-def view_workflow(request: Request, wid: int, ep_error: str = "", user=Depends(current_user)):
+def view_workflow(request: Request, wid: int, user=Depends(current_user)):
     conn = connect()
     try:
         w = _get_workflow(conn, wid, user)
@@ -636,19 +636,16 @@ def view_workflow(request: Request, wid: int, ep_error: str = "", user=Depends(c
             "SELECT * FROM runs WHERE workflow_id=? AND user_id=? ORDER BY id DESC LIMIT 20",
             (wid, user["id"])).fetchall()
         can_edit = w["owner_id"] == user["id"] or user["role"] == "admin"
-        endpoints = conn.execute(
-            "SELECT * FROM endpoints WHERE workflow_id=? ORDER BY name",
-            (wid,)).fetchall() if can_edit else []
     finally:
         conn.close()
     return page(request, "workflow_view.html", user=user, wf=w,
                 inputs=json.loads(w["inputs_spec"] or "[]"), runs=runs, set_names=set_names,
-                can_edit=can_edit, endpoints=endpoints, api_prefix=_prefix(request),
-                ep_error=ep_error)
+                can_edit=can_edit)
 
 
 @app.get("/workflows/{wid}/edit", response_class=HTMLResponse)
-def edit_workflow(request: Request, wid: int, user=Depends(require_role("editor"))):
+def edit_workflow(request: Request, wid: int, ep_error: str = "",
+                  user=Depends(require_role("editor"))):
     conn = connect()
     try:
         w = _get_workflow(conn, wid, user, for_edit=True)
@@ -659,10 +656,14 @@ def edit_workflow(request: Request, wid: int, user=Depends(require_role("editor"
                 if r["id"] in assignable or r["id"] in wf_set_ids]
         tool_names = [r["name"] for r in conn.execute(
             "SELECT name FROM mcp_tools WHERE enabled=1 ORDER BY name")]
+        endpoints = conn.execute(
+            "SELECT * FROM endpoints WHERE workflow_id=? ORDER BY name", (wid,)).fetchall()
     finally:
         conn.close()
     return page(request, "workflow_edit.html", user=user, wf=w, sets=sets, wf_set_ids=wf_set_ids,
-                models=MODEL_CHOICES, tool_names=tool_names)
+                models=MODEL_CHOICES, tool_names=tool_names,
+                inputs=json.loads(w["inputs_spec"] or "[]"), endpoints=endpoints,
+                api_prefix=_prefix(request), ep_error=ep_error)
 
 
 @app.post("/workflows/{wid}")
@@ -694,8 +695,8 @@ _ENDPOINT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 
 
 def _ep_error(request, wid: int, message: str):
-    """Bounce a bad endpoint form back to the workflow page; the dialog reopens with the error."""
-    return redirect(request, f"/workflows/{wid}?ep_error={quote(message)}")
+    """Bounce a bad endpoint form back to the edit page; the dialog reopens with the error."""
+    return redirect(request, f"/workflows/{wid}/edit?ep_error={quote(message)}")
 
 
 @app.post("/workflows/{wid}/endpoints")
@@ -717,7 +718,7 @@ def create_endpoint(request: Request, wid: int, name: str = Form(...), token: st
         except sqlite3.IntegrityError:
             return _ep_error(request, wid, f'Endpoint name "{name}" is already taken.')
         conn.commit()
-        return redirect(request, f"/workflows/{wid}")
+        return redirect(request, f"/workflows/{wid}/edit")
     finally:
         conn.close()
 
@@ -735,7 +736,7 @@ def update_endpoint(request: Request, wid: int, eid: int, token: str = Form(""),
         conn.execute("UPDATE endpoints SET token=? WHERE id=? AND workflow_id=?",
                      (token, eid, wid))
         conn.commit()
-        return redirect(request, f"/workflows/{wid}")
+        return redirect(request, f"/workflows/{wid}/edit")
     finally:
         conn.close()
 
@@ -747,7 +748,7 @@ def delete_endpoint(request: Request, wid: int, eid: int, user=Depends(require_r
         _get_workflow(conn, wid, user, for_edit=True)
         conn.execute("DELETE FROM endpoints WHERE id=? AND workflow_id=?", (eid, wid))
         conn.commit()
-        return redirect(request, f"/workflows/{wid}")
+        return redirect(request, f"/workflows/{wid}/edit")
     finally:
         conn.close()
 
@@ -942,7 +943,12 @@ def view_run(request: Request, rid: int, user=Depends(current_user)):
         conn.close()
     result_html = (_MD_STYLE + md.markdown(r["result"], extensions=["fenced_code", "tables"])
                    if r["result"] else None)
-    return page(request, "run.html", user=user, run=r, logs=logs, result_html=result_html)
+    # Finished runs get their sandbox listing inline; live runs keep the page light
+    # (it reloads on completion) and offer the Browse files link instead.
+    files, files_error = (_sandbox_listing(rid) if r["status"] in ("done", "error")
+                          else ([], None))
+    return page(request, "run.html", user=user, run=r, logs=logs, result_html=result_html,
+                files=files, files_error=files_error)
 
 
 @app.get("/runs/{rid}/status")
@@ -964,6 +970,22 @@ def _agent_files(method: str, path: str, **kw):
                          headers={"Authorization": f"Bearer {AGENT_TOKEN}"}, timeout=30, **kw)
 
 
+def _sandbox_listing(rid: int):
+    """List a run's sandbox files via the agent file API. Returns (files, error);
+    never raises — callers render the error string instead."""
+    try:
+        resp = _agent_files("GET", f"/sandbox/{rid}")
+        if resp.status_code == 200:
+            return resp.json()["files"], None
+        if resp.status_code == 404:
+            return [], "No sandbox on the agent host (run hasn't started, or files were cleaned)."
+        return [], f"Agent host returned {resp.status_code}."
+    except HTTPException as e:
+        return [], e.detail
+    except Exception as e:
+        return [], f"Cannot reach agent host: {e}"
+
+
 @app.get("/runs/{rid}/files", response_class=HTMLResponse)
 def run_files(request: Request, rid: int, user=Depends(current_user)):
     conn = connect()
@@ -971,19 +993,7 @@ def run_files(request: Request, rid: int, user=Depends(current_user)):
         _owned_run(conn, rid, user)   # authorize before proxying
     finally:
         conn.close()
-    files, error = [], None
-    try:
-        resp = _agent_files("GET", f"/sandbox/{rid}")
-        if resp.status_code == 200:
-            files = resp.json()["files"]
-        elif resp.status_code == 404:
-            error = "No sandbox on the agent host (run hasn't started, or files were cleaned)."
-        else:
-            error = f"Agent host returned {resp.status_code}."
-    except HTTPException:
-        raise
-    except Exception as e:
-        error = f"Cannot reach agent host: {e}"
+    files, error = _sandbox_listing(rid)
     return page(request, "run_files.html", user=user, rid=rid, files=files, error=error)
 
 

@@ -163,6 +163,9 @@ async def _run_query_once(prompt: str, options: ClaudeAgentOptions) -> str:
             texts += [b.text for b in msg.content if isinstance(b, TextBlock)]
         elif isinstance(msg, ResultMessage):
             if msg.is_error:
+                if msg.subtype == "error_max_turns":
+                    raise RuntimeError(f"run stopped: hit the {msg.num_turns}-turn limit "
+                                       "(MAX_TURNS) before finishing")
                 raise RuntimeError(msg.result or "agent run failed")
             final = msg.result
     return final or "\n".join(texts)

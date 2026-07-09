@@ -20,9 +20,9 @@ def _assistant(*texts):
     return AssistantMessage(content=[TextBlock(text=t) for t in texts], model="test")
 
 
-def _result(result, is_error=False):
-    return ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1,
-                         is_error=is_error, num_turns=1, session_id="s", result=result)
+def _result(result, is_error=False, subtype="success", num_turns=1):
+    return ResultMessage(subtype=subtype, duration_ms=1, duration_api_ms=1,
+                         is_error=is_error, num_turns=num_turns, session_id="s", result=result)
 
 
 def _fake_query(messages):
@@ -64,6 +64,19 @@ def test_error_result_without_text_still_raises():
         assert False, "expected RuntimeError"
     except RuntimeError as e:
         assert "agent run failed" in str(e)   # default message when no result text
+
+
+def test_max_turns_is_reported_clearly():
+    # An error_max_turns result has no result text — it must not fall back to the
+    # opaque "agent run failed", and it must not look transient (no retry).
+    runner.query = _fake_query([_result(None, is_error=True,
+                                        subtype="error_max_turns", num_turns=40)])
+    try:
+        _run()
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "40-turn limit" in str(e)
+        assert not runner.is_transient_error(str(e))
 
 
 def _flaky_query(fail_times, error="API Error: Overloaded", result="RECOVERED"):
@@ -150,6 +163,7 @@ if __name__ == "__main__":
         test_falls_back_to_assistant_text_when_no_result()
         test_error_result_raises()
         test_error_result_without_text_still_raises()
+        test_max_turns_is_reported_clearly()
         test_transient_error_is_retried()
         test_transient_error_exhausts_attempts()
         test_non_transient_error_is_not_retried()

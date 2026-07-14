@@ -14,6 +14,12 @@ recursive, capped at 100 — excludes `status.json` itself since it's listed bef
 tested, `write_status` swallows I/O errors so bookkeeping never fails a run). It lands in the sandbox
 so it shows up in the file browser like any other deliverable.
 
+`status.json` is a **reserved filename**: the worker's `finally`-block write unconditionally
+replaces whatever is at that path, so a workflow that writes its own `status.json` loses it when
+the run ends (observed in run 63 — the agent's version was clobbered; the tell is `status.json`
+appearing in its own `files` list, which normally excludes it). Workflow prompts should write
+results to any other name (e.g. `result.json`).
+
 **A workflow definition** carries: `inputs_spec`, `action_prompt` (what the agent does),
 `eval_prompt` (how to summarize), `tools` (JSON list, e.g. `["puppeteer"]`), and `model`
 (`''`/fable/opus/sonnet/haiku — `''` = the agent host's default).

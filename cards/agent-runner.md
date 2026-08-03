@@ -40,6 +40,13 @@ immediately and fail the run.
    **web-side at claim time** from the admin-managed `mcp_tools` table (Admin → Tools): enabled
    names arrive at the agent as inline dicts, disabled names are dropped with a run-log note, and
    unknown names pass through to the agent's `MCP_TOOLS` fallback dict in `runner.py`.
+   Both the admin registry (Admin → Tools, per row) and the workflow edit page (**Test tools**, per
+   entry in the box, inline dicts included) can **test** a tool: the web app relays the server config
+   to the agent's `POST /mcp/test` (`files_api.py`), which does an MCP `initialize` (+ best-effort
+   `tools/list`). The probe runs on the agent host on purpose — that is the host that must reach the
+   tool, and LAN servers are invisible from the web host. **Enabling a tool requires a passing test**
+   (`toggle_tool` re-probes server-side before enabling; disabling is unconditional). Editing an
+   enabled tool's config does *not* re-test it. See `cards/run-files.md` for the endpoints.
 3. **Action pass:** `query()` with `cwd=sandbox`, `permission_mode="bypassPermissions"` (runs
    non-interactively), `max_turns`, `max_buffer_size=10 MB` (the SDK's 1 MB default kills the run
    when a single tool result — e.g. a fetched web page — exceeds it), and

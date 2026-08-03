@@ -45,7 +45,14 @@ inline MCP server dicts, e.g. `["puppeteer", {"name": "nnn", "type": "http", "ur
 Tool names come from an admin-managed registry (**Admin → Tools**): each entry has a name, a JSON
 server config (`type` + `url` required; extra keys like auth `headers` pass through to the SDK),
 and an enabled flag. Names are resolved to server configs when the agent claims the run; disabled
-tools are skipped with a note in the run log.
+tools are skipped with a note in the run log. Each entry has a **Test** button that asks the agent
+host to connect to the server (MCP `initialize`, then a tool list when the server allows it) and
+reports what it found or why it failed — the check runs on the agent host because that's the host
+that has to reach the tool. A disabled tool can only be **enabled after it passes a test** (the
+button stays locked until then, and the server re-tests before flipping the flag), so an unreachable
+server surfaces in the admin page rather than half-way through someone's run. The workflow edit page
+has the same check as **Test tools**: it probes every entry in the Tools box — registered names and
+inline server dicts alike — against the text as typed, so you can check it before saving.
 
 A run collects the inputs, drops files in `sandboxes/<run_id>/`, runs the action prompt,
 then a read-only eval pass that produces the summary. When the run ends the worker writes

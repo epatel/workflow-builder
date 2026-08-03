@@ -16,7 +16,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_for_filename, guess_lexer, TextLexer
 from pygments.util import ClassNotFound
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Form, Depends, HTTPException, Header
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, Header, Body
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -302,10 +302,76 @@ def update_tool(request: Request, tid: int, config: str = Form(...),
     return redirect(request, "/admin")
 
 
-@app.post("/admin/tools/{tid}/toggle")
-def toggle_tool(request: Request, tid: int, user=Depends(require_role("admin"))):
+def _probe_tool(config: dict) -> dict:
+    """Ask the agent host to reach an MCP server and report back. The probe runs there
+    because that's the host that needs the access (LAN tools aren't reachable from the
+    web host). Never raises — a failure is the verdict: {"ok": false, "error": ...}."""
+    try:
+        resp = _agent_files("POST", "/mcp/test", json=config)
+    except HTTPException as e:
+        return {"ok": False, "error": e.detail}
+    except Exception as e:
+        return {"ok": False, "error": f"Cannot reach agent host: {e}"}
+    if resp.status_code != 200:
+        return {"ok": False, "error": f"Agent host returned {resp.status_code}."}
+    return resp.json()
+
+
+@app.post("/admin/tools/{tid}/test")
+def test_tool(tid: int, user=Depends(require_role("admin"))):
+    """Test a registered tool — JSON for the admin page's Test button."""
     conn = connect()
     try:
+        t = conn.execute("SELECT * FROM mcp_tools WHERE id=?", (tid,)).fetchone()
+    finally:
+        conn.close()
+    if not t:
+        raise HTTPException(404, "No such tool")
+    return _probe_tool(json.loads(t["config"]))
+
+
+@app.post("/tools/test")
+def test_tool_entry(entry=Body(..., embed=True), user=Depends(current_user)):
+    """Test one entry of a workflow's tools list: either a registered tool name or an
+    inline server dict. Backs the Test buttons on the workflow edit page, so it's open
+    to any signed-in user — they can already name these tools and run them."""
+    if isinstance(entry, str):
+        conn = connect()
+        try:
+            t = conn.execute("SELECT * FROM mcp_tools WHERE name=?", (entry,)).fetchone()
+        finally:
+            conn.close()
+        if not t:
+            return {"ok": False, "error": f'"{entry}" is not a registered tool name — '
+                                          "an admin can add it under Admin → Tools."}
+        result = _probe_tool(json.loads(t["config"]))
+        if result.get("ok") and not t["enabled"]:
+            result["warning"] = "Registered but disabled — runs will skip it."
+        return result
+    if isinstance(entry, dict):
+        cfg = {k: v for k, v in entry.items() if k != "name"}
+        try:
+            _validate_tool_config(json.dumps(cfg))
+        except HTTPException as e:
+            return {"ok": False, "error": e.detail}
+        return _probe_tool(cfg)
+    return {"ok": False, "error": "Each tools entry must be a name or a server object."}
+
+
+@app.post("/admin/tools/{tid}/toggle")
+def toggle_tool(request: Request, tid: int, user=Depends(require_role("admin"))):
+    """Toggle a tool. Enabling requires a passing test first: a tool the agent host
+    can't reach would only fail at run time, half-way through someone's run."""
+    conn = connect()
+    try:
+        t = conn.execute("SELECT * FROM mcp_tools WHERE id=?", (tid,)).fetchone()
+        if not t:
+            raise HTTPException(404, "No such tool")
+        if not t["enabled"]:
+            probe = _probe_tool(json.loads(t["config"]))
+            if not probe.get("ok"):
+                raise HTTPException(400, f'Cannot enable "{t["name"]}" — the agent host could '
+                                         f'not reach it: {probe.get("error")}')
         conn.execute("UPDATE mcp_tools SET enabled = 1 - enabled WHERE id=?", (tid,))
         conn.commit()
     finally:

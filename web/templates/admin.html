@@ -98,7 +98,8 @@
     <code>name</code> — <code>type</code> (http/sse) and <code>url</code> required; extra keys like
     <code>headers</code> pass through, e.g.
     <code>{"type": "http", "url": "https://…", "headers": {"Authorization": "Bearer …"}}</code>.
-    Disabled tools are skipped when a run starts, with a note in the run log.</p>
+    Disabled tools are skipped when a run starts, with a note in the run log. <strong>Test</strong>
+    checks that the agent host can reach the server — a tool can only be enabled once it passes.</p>
   <p><button id="toolAddBtn">Add tool</button></p>
   {% if mcp_tools %}
   <table>
@@ -109,14 +110,22 @@
       <td class="mono" style="word-break:break-all;color:var(--muted)">{{ t.url }}</td>
       <td><span class="status {{ 'st-done' if t.enabled else 'st-pending' }}">{{ 'enabled' if t.enabled else 'disabled' }}</span></td>
       <td style="white-space:nowrap">
+        <button class="secondary test-tool" data-id="{{ t.id }}"
+                title="Check that the agent host can reach this MCP server">Test</button>
         <button class="secondary edit-cfg" data-id="{{ t.id }}" data-name="{{ t.name }}"
                 data-config="{{ t.config }}">Config</button>
         <form method="post" action="admin/tools/{{ t.id }}/toggle" style="display:inline">
-          <button class="secondary">{{ 'Disable' if t.enabled else 'Enable' }}</button></form>
+          {# Enable stays locked until a passing test in this page; the server re-tests too #}
+          <button class="secondary" {{ 'disabled data-enable-for=' ~ t.id if not t.enabled }}
+                  {{ 'title="Test it first — enabling needs a reachable server"' if not t.enabled }}
+                  >{{ 'Disable' if t.enabled else 'Enable' }}</button></form>
         <form method="post" action="admin/tools/{{ t.id }}/delete" style="display:inline"
               data-confirm="Delete tool {{ t.name }}? Workflows naming it will run without it.">
           <button class="danger">Delete</button></form>
       </td>
+    </tr>
+    <tr hidden data-test-row="{{ t.id }}">
+      <td colspan="4" class="mono" style="font-size:.85rem;word-break:break-word"></td>
     </tr>
     {% endfor %}
   </table>
@@ -211,6 +220,45 @@
     open("Add tool", "admin/tools", true, '{\n  "type": "http",\n  "url": ""\n}'));
   document.querySelectorAll(".edit-cfg").forEach(btn => btn.addEventListener("click", () =>
     open("Config — " + btn.dataset.name, "admin/tools/" + btn.dataset.id, false, btn.dataset.config)));
+})();
+
+// Test button: asks the agent host to reach the tool's MCP server; the verdict lands
+// in the hidden row under the tool. Failures are answers, not errors — always shown.
+(function(){
+  document.querySelectorAll(".test-tool").forEach(btn => btn.addEventListener("click", async () => {
+    const cell = document.querySelector('[data-test-row="' + btn.dataset.id + '"]');
+    const out = cell.querySelector("td");
+    cell.hidden = false;
+    out.className = "mono";
+    out.style.color = "var(--muted)";
+    out.textContent = "Testing…";
+    btn.disabled = true;
+    try {
+      const r = await fetch("admin/tools/" + btn.dataset.id + "/test", {method: "POST"});
+      const d = await r.json();
+      if (d.ok) {
+        const who = [d.server, d.version].filter(Boolean).join(" ");
+        const tools = d.tools === null || d.tools === undefined
+          ? "tool list unavailable"
+          : d.tools.length + " tool(s): " + d.tools.join(", ");
+        out.style.color = "var(--ok)";
+        out.textContent = "Reachable from the agent host" + (who ? " — " + who : "") + " — " + tools;
+        const enable = document.querySelector('[data-enable-for="' + btn.dataset.id + '"]');
+        if (enable) {                       // a passing test unlocks Enable for this tool
+          enable.disabled = false;
+          enable.title = "";
+        }
+      } else {
+        out.style.color = "var(--err)";
+        out.textContent = "Failed: " + (d.error || "unknown error");
+      }
+    } catch (e) {
+      out.style.color = "var(--err)";
+      out.textContent = "Failed: " + e;
+    } finally {
+      btn.disabled = false;
+    }
+  }));
 })();
 
 // ponytail: localStorage keeps the active tab across form-submit redirects to /admin

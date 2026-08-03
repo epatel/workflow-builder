@@ -265,6 +265,59 @@ def test_mcp_tools():
     assert client.post(f"/admin/tools/{b_id}", data={"config": "junk"},
                        follow_redirects=False).status_code == 400
 
+    # Test button: the probe runs on the agent host, so the web side just relays its
+    # verdict — including failures, and including the agent host being unreachable.
+    class FakeResp:
+        status_code = 200
+        def __init__(self, body): self._body = body
+        def json(self): return self._body
+
+    sent, probe = {}, {"ok": True, "server": "browser-mcp", "version": "1.0", "tools": ["nav"]}
+    def fake_agent(method, path, **kw):
+        sent.update(method=method, path=path, json=kw.get("json"))
+        return FakeResp(probe)
+    real_agent = appmod._agent_files
+    appmod._agent_files = fake_agent
+    try:
+        r = client.post(f"/admin/tools/{b_id}/test").json()
+        assert r == probe
+        assert sent["method"] == "POST" and sent["path"] == "/mcp/test"
+        assert sent["json"]["url"] == "http://b:1/mcp"          # tool's stored config sent
+        assert sent["json"]["headers"]["Authorization"] == "Bearer rotated"
+        assert client.post("/admin/tools/99999/test").status_code == 404
+
+        # enabling requires a passing test; disabling never does
+        probe = {"ok": False, "error": "connect refused"}
+        assert client.post(f"/admin/tools/{off_id}/toggle", follow_redirects=False).status_code == 400
+        assert conn.execute("SELECT enabled FROM mcp_tools WHERE id=?", (off_id,)).fetchone()[0] == 0
+        probe = {"ok": True, "server": "", "version": "", "tools": []}
+        assert client.post(f"/admin/tools/{off_id}/toggle", follow_redirects=False).status_code == 303
+        assert conn.execute("SELECT enabled FROM mcp_tools WHERE id=?", (off_id,)).fetchone()[0] == 1
+        probe = {"ok": False, "error": "connect refused"}
+        assert client.post(f"/admin/tools/{off_id}/toggle", follow_redirects=False).status_code == 303
+        assert conn.execute("SELECT enabled FROM mcp_tools WHERE id=?", (off_id,)).fetchone()[0] == 0
+
+        # /tools/test — the workflow edit page's per-entry test (any signed-in user)
+        probe = {"ok": True, "server": "s", "version": "1", "tools": []}
+        def probe_entry(entry):
+            return client.post("/tools/test", json={"entry": entry}).json()
+        assert probe_entry("browser")["ok"] is True
+        assert sent["json"]["url"] == "http://b:1/mcp"           # registered name -> its config
+        assert "disabled" in probe_entry("offtool")["warning"]   # reachable but runs skip it
+        assert probe_entry({"name": "inline", "type": "http", "url": "https://i/mcp"})["ok"] is True
+        assert sent["json"] == {"type": "http", "url": "https://i/mcp"}   # "name" stripped
+        unknown = probe_entry("mystery")
+        assert unknown["ok"] is False and "not a registered tool name" in unknown["error"]
+        bad_inline = probe_entry({"name": "x", "type": "stdio", "url": "http://x"})
+        assert bad_inline["ok"] is False and "http" in bad_inline["error"]
+        assert probe_entry(7)["ok"] is False                     # not a name or a server object
+
+        appmod._agent_files = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+        down = client.post(f"/admin/tools/{b_id}/test").json()
+        assert down["ok"] is False and "down" in down["error"]
+    finally:
+        appmod._agent_files = real_agent
+
     # workflow naming enabled/disabled/unknown/inline tools
     tools = '["browser", "offtool", "mystery", {"name": "inline", "type": "http", "url": "https://i/mcp"}]'
     r = client.post("/workflows", data={"name": "Tooled", "inputs_spec": "[]",
@@ -285,9 +338,15 @@ def test_mcp_tools():
     logs = client.get(f"/runs/{rid}/status").json()["logs"]
     assert any("offtool" in l["message"] and "disabled" in l["message"] for l in logs)
 
-    # edit page's "Available tools" hint lists enabled tool names only
+    # edit page's "Available tools" hint lists enabled tool names only, and offers the test
     page = client.get(f"/workflows/{twid}/edit").text
     assert '<code>"browser"</code>' in page and '<code>"offtool"</code>' not in page
+    assert 'id="toolsTestBtn"' in page
+
+    # admin page: Enable is rendered locked for the disabled tool, Disable is not
+    admin = client.get("/admin").text
+    assert f'disabled data-enable-for={off_id}' in admin
+    assert f'data-enable-for={b_id}' not in admin
 
     # deleting a tool makes its name pass through untouched (agent fallback may know it)
     client.post(f"/admin/tools/{off_id}/delete", follow_redirects=False)

@@ -38,6 +38,26 @@ def test_files_api():
     assert c.get("/sandbox/5", headers=auth).status_code == 404
 
 
+def test_mcp_test():
+    from fastapi.testclient import TestClient
+    import files_api
+    c = TestClient(files_api.app)
+    auth = {"Authorization": "Bearer t"}
+
+    # both reply shapes a streamable-HTTP MCP server may use
+    assert files_api.parse_rpc_body("application/json", '{"result": 1}') == {"result": 1}
+    assert files_api.parse_rpc_body(
+        "text/event-stream", 'event: message\ndata: {"result": 2}\n\n') == {"result": 2}
+
+    assert c.post("/mcp/test", json={"type": "http", "url": "http://x/mcp"}).status_code == 401
+    # config must look like a server dict
+    assert c.post("/mcp/test", json={"url": "http://x/mcp"}, headers=auth).status_code == 400
+    # an unreachable server is an answer, not an error
+    bad = c.post("/mcp/test", headers=auth,
+                 json={"type": "http", "url": "http://127.0.0.1:1/mcp"})
+    assert bad.status_code == 200 and bad.json()["ok"] is False and bad.json()["error"]
+
+
 def test_tools_config():
     mcp, allowed = runner.tools_config(["puppeteer", "unknown"])
     assert mcp == {"puppeteer": {"type": "http", "url": runner.PUPPETEER_MCP_URL}}
@@ -196,6 +216,7 @@ if __name__ == "__main__":
     test_compose_prompt()
     test_chain_loop()
     test_files_api()
+    test_mcp_test()
     test_build_status()
     test_handle_success()                       # success path
     test_handle_success(should_fail=True)       # failure path reports error

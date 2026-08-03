@@ -38,13 +38,75 @@
 
   {% set tools_help = 'Extra MCP servers the agent may use. JSON list. Use a registered tool name (see below), or an inline server: {"name": "nnn", "type": "http", "url": "https://..."}. Empty = just the built-in file/shell tools.' %}
   <label title='{{ tools_help }}'>Tools (JSON list of tool names and/or inline servers)</label>
-  <textarea name="tools" title='{{ tools_help }}'>{{ wf.tools if wf else '[]' }}</textarea>
+  <textarea name="tools" id="toolsBox" title='{{ tools_help }}'>{{ wf.tools if wf else '[]' }}</textarea>
+  <p style="margin:.4rem 0 0">
+    <button type="button" class="secondary" id="toolsTestBtn"
+            title="Check that the agent host can reach each tool in the list">Test tools</button></p>
+  <div id="toolsTestOut" class="mono" style="font-size:.85rem;margin:.4rem 0 0"></div>
   <p style="color:var(--muted);font-size:.85rem;margin:.3rem 0 0">
     {% if tool_names %}Available tools: {% for n in tool_names %}<code>"{{ n }}"</code>{{ ' ' }}{% endfor %}
     {% else %}No registered tools — an admin can add MCP servers under Admin → Tools.{% endif %}</p>
 
   <p><button>Save</button> <a class="btn secondary" href="workflows">Cancel</a></p>
 </form>
+
+<script>
+// "Test tools": each entry in the tools list — registered name or inline server dict —
+// is probed from the agent host (that's the host that has to reach it). Tests the text
+// in the box, so it works before saving.
+(function(){
+  const btn = document.getElementById("toolsTestBtn");
+  const box = document.getElementById("toolsBox");
+  const out = document.getElementById("toolsTestOut");
+
+  function line(color, text){
+    const p = document.createElement("p");
+    p.style.cssText = "margin:.15rem 0;word-break:break-word;color:var(--" + color + ")";
+    p.textContent = text;
+    out.appendChild(p);
+    return p;
+  }
+  function label(entry){
+    return typeof entry === "string" ? entry : (entry && entry.name) || JSON.stringify(entry);
+  }
+
+  btn.addEventListener("click", async () => {
+    out.textContent = "";
+    let entries;
+    try { entries = JSON.parse(box.value || "[]"); }
+    catch (e) { line("err", "Tools is not valid JSON: " + e.message); return; }
+    if (!Array.isArray(entries)) { line("err", "Tools must be a JSON list."); return; }
+    if (!entries.length) { line("muted", "No tools to test."); return; }
+
+    btn.disabled = true;
+    const rows = entries.map(e => line("muted", label(e) + ": testing…"));
+    await Promise.all(entries.map(async (entry, i) => {
+      const row = rows[i];
+      try {
+        const r = await fetch("tools/test", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({entry: entry})});
+        const d = await r.json();
+        if (d.ok) {
+          const who = [d.server, d.version].filter(Boolean).join(" ");
+          const tools = d.tools == null ? "tool list unavailable"
+                                        : d.tools.length + " tool(s): " + d.tools.join(", ");
+          row.style.color = d.warning ? "var(--muted)" : "var(--ok)";
+          row.textContent = label(entry) + ": reachable" + (who ? " — " + who : "") +
+                            " — " + tools + (d.warning ? " — " + d.warning : "");
+        } else {
+          row.style.color = "var(--err)";
+          row.textContent = label(entry) + ": failed — " + (d.error || "unknown error");
+        }
+      } catch (e) {
+        row.style.color = "var(--err)";
+        row.textContent = label(entry) + ": failed — " + e;
+      }
+    }));
+    btn.disabled = false;
+  });
+})();
+</script>
 
 {% if wf %}
 {% set endpoint = endpoints[0] if endpoints else None %}

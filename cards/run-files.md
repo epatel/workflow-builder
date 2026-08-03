@@ -10,6 +10,10 @@ the web server **proxies** browse/view/download to a small read-only file API on
 Apache at `/workflow-agent`):
 - `GET /sandbox/{run_id}` → `{files: [{path, size}]}` (recursive `rglob`).
 - `GET /sandbox/{run_id}/file?path=…&dl=0|1` → file bytes, inline or `attachment`.
+- `DELETE /sandbox/{run_id}` → removes the sandbox.
+- `POST /mcp/test` with a server config body (`{type, url, headers?}`) → probes that server from
+  **this** host and returns `{ok, server, version, tools}` or `{ok: false, error}`. Not a file
+  route, but it lives here because it needs the agent host's network view (Admin → Tools "Test").
 - Bearer-token auth (the shared `AGENT_TOKEN`); path-traversal guarded (target must stay under the
   run's sandbox dir).
 
@@ -20,6 +24,12 @@ Apache at `/workflow-agent`):
   content-type / content-disposition.
 - If `AGENT_FILES_URL` is unset or the agent host is unreachable, the files page shows a notice
   rather than erroring the run view.
+- `_probe_tool(config)` wraps the agent call and never raises — unreachable agent host / non-200
+  come back as `{ok: false, error}`, so callers always have something to show. Used by:
+  `POST /admin/tools/{id}/test` (admin, tests a registered tool), `POST /tools/test` with body
+  `{"entry": <name|server dict>}` (any signed-in user — backs the workflow edit page's "Test tools",
+  resolves names against the registry and strips `name` from inline dicts), and
+  `POST /admin/tools/{id}/toggle`, which re-probes before **enabling** and 400s if the probe fails.
 
 The run page links to it ("Browse files"), and once a run is terminal (`done`/`error`) the run page
 also renders a **Files** section inline — same listing via `_sandbox_listing` (shared with

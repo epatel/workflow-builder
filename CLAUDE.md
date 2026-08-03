@@ -8,6 +8,14 @@ and a logged-in Claude Code CLI.
 
 Read `@project-plan.md` first — it holds the shared goal, settled decisions, and current state.
 
+## Terminology
+
+What the code and UI call a **workflow** is conceptually a **task**: one node (action prompt +
+eval prompt + tools) that a run executes, possibly chaining to the next node. "Workflow" is the
+better name for the whole chain. Nothing is renamed yet — code, DB, and URLs still say
+`workflow(s)` — but when writing prose/docs or naming new things, think of a workflow row as a
+task-node, and don't overload "workflow" further.
+
 ## UI conventions
 
 Never use browser-default popups — no `alert()`, `confirm()`, `prompt()`. Use a styled `<dialog>`

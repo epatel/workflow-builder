@@ -62,5 +62,10 @@ class WebClient:
         r.raise_for_status()
         dest.write_bytes(r.content)
 
+    async def download_asset(self, workflow_id: int, name: str, dest):
+        r = await self._req("GET", f"/api/workflows/{workflow_id}/assets/{name}")
+        r.raise_for_status()
+        dest.write_bytes(r.content)
+
     async def aclose(self):
         await self.http.aclose()

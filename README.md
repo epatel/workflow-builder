@@ -54,6 +54,13 @@ server surfaces in the admin page rather than half-way through someone's run. Th
 has the same check as **Test tools**: it probes every entry in the Tools box — registered names and
 inline server dicts alike — against the text as typed, so you can check it before saving.
 
+A saved workflow can also carry **assets** — files uploaded on its edit page (templates, reference
+data, scripts…) that are copied into the sandbox root before each run starts. They're stored on the
+web host under `ASSETS_DIR/<workflow_id>/` (default `web/assets/`) and shipped to the agent by name
+at claim time. Uploaded run inputs replace a same-named asset; in a chain, a later workflow's assets
+never overwrite files already in the sandbox (skipped with a run-log note). `inputs.json` and
+`status.json` are reserved and can't be asset names.
+
 A run collects the inputs, drops files in `sandboxes/<run_id>/`, runs the action prompt,
 then a read-only eval pass that produces the summary. When the run ends the worker writes
 `status.json` into the sandbox with the run's **total running time** (`total_seconds`), its status
@@ -171,7 +178,7 @@ ssh home 'screen -S workflow-agent -X quit; sleep 2; cd ~/workflow-agent && scre
 ```
 Migrations apply automatically on web restart (`run.sh` → `db.py`). Logs are `run.log` in each dir
 — but the worker buffers stdout, so confirm it's up with `ssh home 'pgrep -f worker.py'` rather than
-tailing the log. `make deploy-web`/`deploy-agent` exclude `.env`, `*.db`, `venv`, `sandbox`/`uploads`.
+tailing the log. `make deploy-web`/`deploy-agent` exclude `.env`, `*.db`, `venv`, `sandbox`/`uploads`/`assets`.
 
 ## Layout
 

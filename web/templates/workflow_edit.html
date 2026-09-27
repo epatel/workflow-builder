@@ -109,6 +109,30 @@
 </script>
 
 {% if wf %}
+<h2>Assets</h2>
+<p style="color:var(--muted);font-size:.85rem;margin:0 0 .5rem">
+  Files copied into the sandbox before each run starts (templates, reference data, scripts…).
+  Uploading a file with an existing name replaces it.</p>
+{% if assets %}
+<table>
+  {% for a in assets %}
+  <tr>
+    <td class="mono">{{ a.name }}</td>
+    <td style="color:var(--muted)">{{ a.size }} B</td>
+    <td>
+      <form method="post" action="workflows/{{ wf.id }}/assets/{{ a.name | urlencode }}/delete"
+            data-confirm="Delete asset {{ a.name }}?" style="margin:0">
+        <button class="danger">Delete</button></form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+<form method="post" action="workflows/{{ wf.id }}/assets" enctype="multipart/form-data">
+  <input type="file" name="files" multiple required>
+  <p><button class="secondary">Upload</button></p>
+</form>
+
 {% set endpoint = endpoints[0] if endpoints else None %}
 <h2>API endpoint</h2>
 <p>

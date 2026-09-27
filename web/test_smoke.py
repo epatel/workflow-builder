@@ -10,6 +10,7 @@ import tempfile
 
 os.environ["DB_PATH"] = tempfile.mktemp(suffix=".db")
 os.environ["UPLOADS_DIR"] = tempfile.mkdtemp()
+os.environ["ASSETS_DIR"] = tempfile.mkdtemp()
 os.environ["AGENT_TOKEN"] = "test-agent-token"
 os.environ["SECRET_KEY"] = "test-secret"
 
@@ -457,6 +458,44 @@ def test_endpoints():
     assert client.post("/api/endpoints/hooked-1", headers=hdr, json={}).status_code == 401
 
 
+def test_assets():
+    # Runs after test_flow: admin (a@x.com) is logged in via module-level `client`.
+    wf = client.post("/workflows", data={"name": "WithAssets", "action_prompt": "x"},
+                     follow_redirects=False)
+    wid = int(wf.headers["location"].split("/")[-1])
+
+    # upload: two assets; a reserved name (inputs.json) is silently skipped
+    files = [("files", ("tpl.md", b"# hi", "text/markdown")),
+             ("files", ("data.csv", b"a,b\n1,2", "text/csv")),
+             ("files", ("inputs.json", b"{}", "application/json"))]
+    r = client.post(f"/workflows/{wid}/assets", files=files, follow_redirects=False)
+    assert r.status_code == 303
+    assert [a["name"] for a in appmod._workflow_assets(wid)] == ["data.csv", "tpl.md"]
+    page = client.get(f"/workflows/{wid}/edit").text
+    assert "tpl.md" in page and "data.csv" in page
+
+    # a plain user (b@x.com, not the owner) can't upload
+    other = TestClient(appmod.app)
+    other.post("/login", data={"email": "b@x.com", "password": "pw"})
+    assert other.post(f"/workflows/{wid}/assets", files=files[:1],
+                      follow_redirects=False).status_code == 403
+
+    # claim ships the asset names with the workflow def; the agent can fetch each one
+    rid = int(client.post(f"/workflows/{wid}/run", follow_redirects=False)
+              .headers["location"].split("/")[-1])
+    while (body := client.post("/api/runs/next", headers=AGENT).json())["run"]["id"] != rid:
+        pass   # drain runs left pending by earlier tests
+    assert body["workflow"]["assets"] == ["data.csv", "tpl.md"]
+    r = client.get(f"/api/workflows/{wid}/assets/tpl.md", headers=AGENT)
+    assert r.status_code == 200 and r.content == b"# hi"
+    assert client.get(f"/api/workflows/{wid}/assets/tpl.md").status_code == 401
+    assert client.get(f"/api/workflows/{wid}/assets/nope.txt", headers=AGENT).status_code == 404
+
+    # delete
+    client.post(f"/workflows/{wid}/assets/tpl.md/delete", follow_redirects=False)
+    assert [a["name"] for a in appmod._workflow_assets(wid)] == ["data.csv"]
+
+
 if __name__ == "__main__":
     test_classify()
     test_highlight()
@@ -465,3 +504,4 @@ if __name__ == "__main__":
     test_reap_running()
     test_mcp_tools()
     test_endpoints()
+    test_assets()

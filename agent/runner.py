@@ -261,6 +261,21 @@ async def _run_step(wf: dict, sandbox: Path, inputs: dict, files: list[str],
     return result
 
 
+async def pull_assets(wf: dict, sandbox: Path, web, run_id: int) -> list[str]:
+    """Copy the workflow's asset files into the sandbox root. Never overwrites: in a chain
+    the sandbox already holds earlier steps' work, which wins over a same-named asset."""
+    pulled = []
+    for name in wf.get("assets") or []:
+        name = Path(name).name
+        dest = sandbox / name
+        if dest.exists():
+            await web.log(run_id, f"asset “{name}” not copied — a file by that name already exists")
+            continue
+        await web.download_asset(wf["id"], name, dest)
+        pulled.append(name)
+    return pulled
+
+
 async def run_workflow(wf: dict, run: dict, sandbox: Path, web) -> str:
     """Run the workflow, then follow any eval-prompt chaining into further workflows that
     share this sandbox. Returns the final step's result. The whole chain is one run row."""
@@ -268,12 +283,14 @@ async def run_workflow(wf: dict, run: dict, sandbox: Path, web) -> str:
     _CTX.update(web=web, run_id=run["id"])  # the log/next tools read this
     inputs = json.loads(run.get("inputs") or "{}")
 
-    # Pull any uploaded files into the sandbox (only the first step has human inputs).
-    files = []
+    # Workflow assets first, then uploaded inputs (only the first step has human inputs);
+    # an uploaded file replaces a same-named asset.
+    files = await pull_assets(wf, sandbox, web, run["id"])
     for v in inputs.values():
         if isinstance(v, dict) and "file" in v:
             await web.download_file(run["id"], v["file"], sandbox / v["file"])
-            files.append(v["file"])
+            if v["file"] not in files:
+                files.append(v["file"])
     (sandbox / "inputs.json").write_text(json.dumps(inputs, indent=2))
 
     result, previous_result, previous_name, handover = None, None, None, None
@@ -306,5 +323,6 @@ async def run_workflow(wf: dict, run: dict, sandbox: Path, web) -> str:
                           f"handover inputs not declared by “{nxt}” dropped: {', '.join(dropped)}")
         # Keep the filesystem in sync with the prompt: inputs.json is this step's inputs.
         (sandbox / "inputs.json").write_text(json.dumps(inputs, indent=2))
+        await pull_assets(wf, sandbox, web, run["id"])
         files = list_files(sandbox)
     return result

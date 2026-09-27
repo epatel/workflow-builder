@@ -52,7 +52,17 @@ Claude Agent SDK in a per-run sandbox.
   `test_handle_success`). See cards/agent-runner.md.
 - 2026-06-21 — Sandbox file browsing is a **live passthrough**, not a copy-back: agent serves a read-only `/sandbox` file API in-process (`home:9006`, Apache `/workflow-agent`, token-auth, traversal-guarded); web proxies after authorizing the run owner. This adds an inbound server on the agent host (supersedes the earlier "agent needs no Apache" note). **Locked.** See cards/run-files.md.
 
+- 2026-09-27 — Workflow **assets** are plain files at `ASSETS_DIR/<workflow_id>/<name>` on the web
+  host, no DB table: the file list is the only state, so a table would just duplicate it. Names ride
+  along in the claimed workflow def; the agent fetches bytes per step and never overwrites an existing
+  sandbox file (in a chain, produced work beats a later step's asset). Uploads replace same-named assets.
+
 ## Current state / handoff
+
+Workflows can now carry **assets**: files uploaded on the edit page (Assets section) that the agent
+copies into the sandbox root before each step runs. Stored on disk at `web/assets/<wid>/` (no
+migration — the directory is the record), excluded from `deploy-web`'s `rsync --delete`. Covered by
+`web/test_smoke.py::test_assets` and `agent/test_agent.py::test_pull_assets`. See cards/agent-runner.md.
 
 **Live.** Web on rpi6 (`screen workflow`, uvicorn :9005 behind Apache `/workflow`); agent worker on
 home (`screen workflow-agent`). A real workflow ran end-to-end through `https://rpi6.memention.net/workflow`

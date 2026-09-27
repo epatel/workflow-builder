@@ -40,7 +40,7 @@ deploy: deploy-web deploy-agent
 # Deploy web to rpi6: sync code, install the Apache endpoint, reload Apache.
 # Preserves the host's .env and workflow.db (rsync excludes .env / *.db).
 deploy-web:
-	$(RSYNC) --exclude '*.db' --exclude uploads web/ $(WEB_HOST):workflow-web/
+	$(RSYNC) --exclude '*.db' --exclude uploads --exclude assets web/ $(WEB_HOST):workflow-web/
 	scp deploy/rpi6/workflow.conf $(WEB_HOST):/tmp/workflow.conf
 	ssh $(WEB_HOST) 'sudo mv /tmp/workflow.conf /etc/apache2/endpoints.d/workflow.conf && sudo systemctl reload apache2'
 	@echo "On $(WEB_HOST): cd workflow-web && ./run.sh   (keep alive via systemd/screen/tmux)"

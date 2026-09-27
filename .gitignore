@@ -4,6 +4,7 @@ __pycache__/
 *.db
 .env
 web/uploads/
+web/assets/
 sandboxes/
 agents-lab/
 graphify-out/

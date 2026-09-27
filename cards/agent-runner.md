@@ -22,7 +22,10 @@ results to any other name (e.g. `result.json`).
 
 **A workflow definition** carries: `inputs_spec`, `action_prompt` (what the agent does),
 `eval_prompt` (how to summarize), `tools` (JSON list, e.g. `["puppeteer"]`), and `model`
-(`''`/fable/opus/sonnet/haiku — `''` = the agent host's default).
+(`''`/fable/opus/sonnet/haiku — `''` = the agent host's default). At claim/resolve time the web
+side adds `assets` — the names of files uploaded on the workflow's edit page, stored web-side at
+`ASSETS_DIR/<workflow_id>/<name>` (not in the DB; the directory is the source of truth, so deploy
+must exclude it). `inputs.json`/`status.json` are refused as asset names.
 
 **Transient API errors are retried** (`_run_query`): overload / rate-limit / timeout / connection
 failures (`is_transient_error`, phrase-matched) get up to `RETRY_ATTEMPTS` (default 3) tries with
@@ -31,7 +34,11 @@ restarts that pass from scratch — safe because the sandbox persists. Non-trans
 immediately and fail the run.
 
 **Running one workflow** (`run_workflow`):
-1. Pull any uploaded files into the sandbox; write `inputs.json` there.
+1. Copy the workflow's **assets** into the sandbox root (`pull_assets` — names arrive in the
+   workflow def's `assets` list; bytes fetched from web `GET /api/workflows/{wid}/assets/{name}`),
+   then pull any uploaded input files (an upload replaces a same-named asset); write `inputs.json`.
+   `pull_assets` never overwrites an existing file — it logs and skips — so on chained steps (which
+   also pull their own workflow's assets) earlier steps' work always wins.
 2. `tools_config(wf.tools)` → `(mcp_servers, allowed_tools)`. Base local tools
    (`Bash, Read, Write, Edit, Glob, Grep`) are always allowed. Each MCP tool adds an HTTP
    MCP server and an `mcp__<server>` entry to `allowed_tools`. A `tools` entry is either a

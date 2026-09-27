@@ -211,10 +211,33 @@ def test_build_status():
     assert listed["files"] == ["inputs.json", "out/index.html"]
 
 
+def test_pull_assets():
+    class AssetWeb:
+        def __init__(self): self.logs, self.fetched = [], []
+        async def log(self, run_id, msg): self.logs.append(msg)
+        async def download_asset(self, wid, name, dest):
+            self.fetched.append((wid, name))
+            dest.write_text(f"asset {name}")
+
+    sandbox = Path(tempfile.mkdtemp())
+    (sandbox / "keep.txt").write_text("earlier step's work")
+    web = AssetWeb()
+    wf = {"id": 7, "assets": ["tpl.md", "keep.txt", "../evil.sh"]}
+    pulled = asyncio.run(runner.pull_assets(wf, sandbox, web, 1))
+    assert pulled == ["tpl.md", "evil.sh"]                 # traversal flattened to sandbox root
+    assert (sandbox / "tpl.md").read_text() == "asset tpl.md"
+    assert (sandbox / "keep.txt").read_text() == "earlier step's work"   # never overwritten
+    assert any("keep.txt" in m for m in web.logs)
+    assert not (sandbox.parent / "evil.sh").exists()
+    # no assets -> nothing fetched
+    assert asyncio.run(runner.pull_assets({"id": 7}, sandbox, web, 1)) == []
+
+
 if __name__ == "__main__":
     test_tools_config()
     test_compose_prompt()
     test_chain_loop()
+    test_pull_assets()
     test_files_api()
     test_mcp_test()
     test_build_status()

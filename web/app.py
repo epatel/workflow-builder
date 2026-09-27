@@ -33,6 +33,8 @@ import email_service
 
 BASE = Path(__file__).parent
 UPLOADS = Path(os.getenv("UPLOADS_DIR", BASE / "uploads"))
+# Per-workflow asset files (ASSETS/<workflow_id>/<name>), copied into each run's sandbox.
+ASSETS = Path(os.getenv("ASSETS_DIR", BASE / "assets"))
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 # Agent host's sandbox file API, reachable from the web host (e.g. https://home.memention.net/workflow-agent).
 AGENT_FILES_URL = os.getenv("AGENT_FILES_URL", "")
@@ -47,6 +49,7 @@ app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 def _startup():
     migrate()
     UPLOADS.mkdir(parents=True, exist_ok=True)
+    ASSETS.mkdir(parents=True, exist_ok=True)
 
 
 def page(request, name, **ctx):
@@ -729,7 +732,7 @@ def edit_workflow(request: Request, wid: int, ep_error: str = "",
     return page(request, "workflow_edit.html", user=user, wf=w, sets=sets, wf_set_ids=wf_set_ids,
                 models=MODEL_CHOICES, tool_names=tool_names,
                 inputs=json.loads(w["inputs_spec"] or "[]"), endpoints=endpoints,
-                api_prefix=_prefix(request), ep_error=ep_error)
+                assets=_workflow_assets(wid), api_prefix=_prefix(request), ep_error=ep_error)
 
 
 @app.post("/workflows/{wid}")
@@ -753,6 +756,59 @@ def update_workflow(request: Request, wid: int, name: str = Form(...),
         return redirect(request, f"/workflows/{wid}")
     finally:
         conn.close()
+
+
+# ---------- assets (files copied into every run's sandbox) ----------
+
+# The agent writes these into the sandbox itself; an asset by that name would be clobbered.
+_RESERVED_ASSET_NAMES = {"inputs.json", "status.json"}
+
+
+def _asset_name(name: str) -> str | None:
+    """Flat, traversal-free asset filename, or None if unusable/reserved."""
+    name = Path(name or "").name
+    if not name or name in (".", "..") or name in _RESERVED_ASSET_NAMES:
+        return None
+    return name
+
+
+def _workflow_assets(wid: int) -> list[dict]:
+    d = ASSETS / str(wid)
+    if not d.is_dir():
+        return []
+    return [{"name": p.name, "size": p.stat().st_size}
+            for p in sorted(d.iterdir()) if p.is_file()]
+
+
+@app.post("/workflows/{wid}/assets")
+async def upload_assets(request: Request, wid: int, user=Depends(require_role("editor"))):
+    """Add (or replace, by name) asset files on a workflow."""
+    form = await request.form()
+    conn = connect()
+    try:
+        _get_workflow(conn, wid, user, for_edit=True)
+    finally:
+        conn.close()
+    d = ASSETS / str(wid)
+    for f in form.getlist("files"):
+        name = _asset_name(f.filename) if isinstance(f, UploadFile) else None
+        if name:
+            d.mkdir(parents=True, exist_ok=True)
+            (d / name).write_bytes(await f.read())
+    return redirect(request, f"/workflows/{wid}/edit")
+
+
+@app.post("/workflows/{wid}/assets/{name}/delete")
+def delete_asset(request: Request, wid: int, name: str, user=Depends(require_role("editor"))):
+    conn = connect()
+    try:
+        _get_workflow(conn, wid, user, for_edit=True)
+    finally:
+        conn.close()
+    name = _asset_name(name)
+    if name:
+        (ASSETS / str(wid) / name).unlink(missing_ok=True)
+    return redirect(request, f"/workflows/{wid}/edit")
 
 
 # ---------- endpoints (trigger a workflow via API) ----------
@@ -1252,6 +1308,7 @@ def claim_next_run(authorization: str | None = Header(None)):
                                  (r["user_id"],)).fetchone()
             w["model"] = owner["default_model"] if owner else ""
         w["tools"] = _resolve_tools(conn, r["id"], w["tools"])
+        w["assets"] = [a["name"] for a in _workflow_assets(w["id"])]
         conn.commit()
         return {"run": dict(r) | {"status": "running"}, "workflow": w}
     finally:
@@ -1284,6 +1341,7 @@ def resolve_workflow(name: str, run_id: int, authorization: str | None = Header(
                                  (user["id"],)).fetchone()
             w["model"] = owner["default_model"] if owner else ""
         w["tools"] = _resolve_tools(conn, run_id, w["tools"])
+        w["assets"] = [a["name"] for a in _workflow_assets(w["id"])]
         conn.commit()   # persist any 'tool disabled' run-log notes
         return w
     finally:
@@ -1297,6 +1355,17 @@ def get_run_file(rid: int, name: str, authorization: str | None = Header(None)):
     path = UPLOADS / str(rid) / Path(name).name  # Path(name).name strips any traversal
     if not path.exists():
         raise HTTPException(404, "File not found")
+    return FileResponse(path)
+
+
+@app.get("/api/workflows/{wid}/assets/{name}")
+def get_workflow_asset(wid: int, name: str, authorization: str | None = Header(None)):
+    """Agent downloads a workflow asset into a run's sandbox."""
+    _check_agent(authorization)
+    name = _asset_name(name)
+    path = ASSETS / str(wid) / name if name else None
+    if path is None or not path.is_file():
+        raise HTTPException(404, "Asset not found")
     return FileResponse(path)
 
 

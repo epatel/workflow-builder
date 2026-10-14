@@ -130,7 +130,9 @@ Open http://localhost:8000, sign up (you become admin), create a workflow, run i
 
 SQLite (`web/workflow.db`). Schema changes ship as numbered files in `web/migrations/`
 (`001_init.sql`, `002_*.sql`, …), applied in order and tracked via `PRAGMA user_version`.
-No ORM, no Alembic. `make migrate` (or `python web/db.py`) applies pending migrations.
+No ORM, no Alembic. `make migrate` (or `python web/db.py`) applies pending migrations. Each file
+runs in its own transaction, so a failing migration changes nothing (don't put `BEGIN`/`COMMIT` in
+a migration file).
 
 ## Deploy
 

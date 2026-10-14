@@ -1,0 +1,15 @@
+{
+  "source": "https://ai.memention.net/setup",
+  "version": "2026-10-15",
+  "updated": "2026-10-15",
+  "applied": ["context-cards", "project-plan", "hooks-over-prose"],
+  "declined": [
+    "feature-first",
+    "feature-first-advanced",
+    "two-tier",
+    "plugin:example-skills@anthropic-agent-skills",
+    "plugin:document-skills@anthropic-agent-skills",
+    "plugin:claude-api@anthropic-agent-skills"
+  ],
+  "copied": {}
+}

@@ -53,7 +53,9 @@ immediately and fail the run.
    `tools/list`). The probe runs on the agent host on purpose — that is the host that must reach the
    tool, and LAN servers are invisible from the web host. **Enabling a tool requires a passing test**
    (`toggle_tool` re-probes server-side before enabling; disabling is unconditional). Editing an
-   enabled tool's config does *not* re-test it. See `cards/run-files.md` for the endpoints.
+   enabled tool's config does *not* re-test it. The web relays the probe through the same
+   web→agent passthrough as sandbox file browsing (`_agent_files` → `AGENT_FILES_URL` with the
+   `AGENT_TOKEN` bearer).
 3. **Action pass:** `query()` with `cwd=sandbox`, `permission_mode="bypassPermissions"` (runs
    non-interactively), `max_turns`, `max_buffer_size=10 MB` (the SDK's 1 MB default kills the run
    when a single tool result — e.g. a fetched web page — exceeds it), and

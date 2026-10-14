@@ -24,9 +24,15 @@ def migrate() -> int:
             n = int(f.name[:3])
             if n <= version:
                 continue
-            conn.executescript(f.read_text())
-            conn.execute(f"PRAGMA user_version = {n}")  # ponytail: n is an int from filename, safe to inline
-            conn.commit()
+            # One transaction per migration: executescript() commits any pending transaction
+            # first and ignores `with conn:`, so the BEGIN/COMMIT must live in the script itself
+            # or a failing migration leaves the schema half-changed. n is an int from the filename.
+            try:
+                conn.executescript(f"BEGIN;\n{f.read_text()}\n;PRAGMA user_version = {n};\nCOMMIT;")
+            except sqlite3.Error:
+                if conn.in_transaction:
+                    conn.rollback()
+                raise
             version = n
         return version
     finally:

@@ -48,7 +48,8 @@ shared secret: `Authorization: Bearer <AGENT_TOKEN>`, identical in `web/.env` an
   picks `pending`, so an interrupted run is never re-claimed on its own.)
 - `GET /api/workflows/resolve?name=&run_id=` — resolves the next workflow in a **chain** by name,
   scoped to the run's user's visibility (owner / admin / shares a set). `404` if no accessible match,
-  `409` if the name is ambiguous. See **cards/agent-runner.md** for the chaining loop.
+  `409` if the name is ambiguous. The worker calls it after an eval pass routes via the
+  `next_workflow` tool, then runs the resolved workflow as the next step of the same run.
 
 **Listing runs:** `GET /runs` (`list_runs`) shows a run history table — regular users see **only
 their own** runs (`WHERE r.user_id=?`), admins see everyone's (with a "By" column). Linked from the

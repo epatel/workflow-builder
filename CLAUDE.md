@@ -6,7 +6,22 @@ inputs/files, starts it, and watches the result. Two FastAPI services — a **we
 with the Claude Agent SDK in its own sandbox folder. Python 3.12+; the agent host also needs Node
 and a logged-in Claude Code CLI.
 
-Read `@project-plan.md` first — it holds the shared goal, settled decisions, and current state.
+Read the project plan first — it holds the shared goal, settled decisions, and current state:
+@project-plan.md
+
+## Commands
+
+```sh
+make venv          # web venv (.venv) + deps;   make agent-venv for agent/.venv
+make web           # web on :8000 with --reload (reads web/.env)
+make agent         # agent worker (reads agent/.env; needs Claude Code CLI logged in)
+make migrate       # apply pending web/migrations/NNN_*.sql (also runs on web startup)
+make test          # all tests: web test_smoke + test_logic, agent test_agent + test_runner
+cd web && ../.venv/bin/python test_smoke.py           # one test file (plain-assert scripts, no pytest)
+cd agent && ./.venv/bin/python test_runner.py
+```
+
+No linter or build step.
 
 ## Terminology
 
@@ -20,7 +35,8 @@ task-node, and don't overload "workflow" further.
 
 Never use browser-default popups — no `alert()`, `confirm()`, `prompt()`. Use a styled `<dialog>`
 (see `workflow_view.html`); for confirmations, put `data-confirm="message"` on the form — the app
-confirm dialog in `base.html` intercepts the submit.
+confirm dialog in `base.html` intercepts the submit. A PreToolUse hook
+(`.claude/hooks/no-browser-popups.py`) blocks edits that add these calls under `web/templates|static/`.
 
 ## Deploy
 
@@ -41,15 +57,17 @@ ssh rpi6 'screen -S workflow -X quit; sleep 2; cd ~/workflow-web && screen -dmS 
 
 ## Context cards
 
-When you change how something works, update the relevant card(s) below and the README in the same change so they don't drift from the code.
-
 Load a card when the situation matches its trigger.
 
-- **cards/architecture.md** — anything about how the two services connect, the request/run flow end to end, or where things are deployed.
-- **cards/accounts-auth.md** — touching signup, login, sessions, roles/permissions, invite codes, email verification, password reset, or **sets / workflow visibility / who-can-see-a-workflow**.
-- **cards/run-queue.md** — touching how runs are created, claimed, or reported; the agent-facing `/api/runs/*` endpoints; or run status polling.
-- **cards/run-files.md** — touching browsing/viewing/downloading a run's sandbox files, the agent's `/sandbox/*` file API, or the web→agent passthrough.
-- **cards/agent-runner.md** — touching how the agent executes a workflow: the worker loop, sandboxes, tool/MCP wiring, or the action/eval passes.
-- **cards/decision-cli-auth.md** — when anything involves the agent's API key or authentication, or `ANTHROPIC_API_KEY` comes up.
-- **cards/decision-sqlite-migrations.md** — when changing the database schema or wondering how migrations work here.
-- **cards/decision-puppeteer-on-lan.md** — when wiring browser/MCP tools, considering the hosted Agents API, or thinking about exposing puppeteer.
+- [architecture](cards/architecture.md) — anything about how the two services connect, the request/run flow end to end, or where things are deployed.
+- [accounts-auth](cards/accounts-auth.md) — touching signup, login, sessions, roles/permissions, invite codes, email verification, password reset, or **sets / workflow visibility / who-can-see-a-workflow**.
+- [run-queue](cards/run-queue.md) — touching how runs are created, claimed, or reported; the agent-facing `/api/runs/*` endpoints; or run status polling.
+- [run-files](cards/run-files.md) — touching browsing/viewing/downloading a run's sandbox files, the agent's `/sandbox/*` file API, or the web→agent passthrough.
+- [agent-runner](cards/agent-runner.md) — touching how the agent executes a workflow: the worker loop, sandboxes, tool/MCP wiring, or the action/eval passes.
+- [decision-cli-auth](cards/decision-cli-auth.md) — when anything involves the agent's API key or authentication, or `ANTHROPIC_API_KEY` comes up.
+- [decision-sqlite-migrations](cards/decision-sqlite-migrations.md) — when changing the database schema or wondering how migrations work here.
+- [decision-puppeteer-on-lan](cards/decision-puppeteer-on-lan.md) — when wiring browser/MCP tools, considering the hosted Agents API, or thinking about exposing puppeteer.
+
+When a change adds non-obvious logic, settles an architectural choice, or makes a card above wrong,
+update or add the card in the same change and keep this index in sync — and the README too, so
+neither drifts from the code. Cards stay self-contained: no card links to another.

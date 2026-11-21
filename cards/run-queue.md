@@ -37,7 +37,11 @@ shared secret: `Authorization: Bearer <AGENT_TOKEN>`, identical in `web/.env` an
   (`_resolve_tools`): enabled tool names become inline server dicts, disabled ones are dropped
   with a run-log note, unknown names pass through. Same resolution applies on
   `GET /api/workflows/resolve` (chaining).
-- `POST /api/runs/{id}` — updates any of `status`, `result`, `error`, `sandbox_path`.
+- `GET /api/runs/{id}` — `{status}` (404 if gone). The worker polls it while running a job; any
+  status other than `running` means **stop** (see Stopping below).
+- `POST /api/runs/{id}` — updates any of `status`, `result`, `error`, `sandbox_path`. Once a run is
+  `done`/`error` its outcome is final: a late `status`/`result`/`error` is ignored (only
+  `sandbox_path` still applies), so a worker finishing after a Stop can't overwrite it.
 - `POST /api/runs/{id}/log` — appends a live progress message (`run_logs` table). The agent calls
   this via its `log_message` SDK tool while a workflow runs.
 - `GET /api/runs/{id}/files/{name}` — streams an uploaded input file so the agent can pull it into
@@ -50,6 +54,14 @@ shared secret: `Authorization: Bearer <AGENT_TOKEN>`, identical in `web/.env` an
   scoped to the run's user's visibility (owner / admin / shares a set). `404` if no accessible match,
   `409` if the name is ambiguous. The worker calls it after an eval pass routes via the
   `next_workflow` tool, then runs the resolved workflow as the next step of the same run.
+
+**Stopping a run:** `POST /runs/{id}/stop` (Stop button on the run page, `data-confirm`; own-or-admin
+via `_owned_run`) flips a `pending`/`running` run straight to `status='error'`,
+`error='stopped by user'` and logs `⏹ stopped by <email>`. No new status value: `runs.status` has a
+CHECK constraint, and rebuilding the table in SQLite would cascade-delete `run_logs`. The web side
+finishes the run itself, so Stop works even if the agent is down. A pending run is then never
+claimed; for a running one, the worker's watcher sees the status change and cancels the job (see
+cards/agent-runner.md). Stopping a finished run does nothing.
 
 **Listing runs:** `GET /runs` (`list_runs`) shows a run history table — regular users see **only
 their own** runs (`WHERE r.user_id=?`), admins see everyone's (with a "By" column). Linked from the

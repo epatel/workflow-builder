@@ -526,6 +526,44 @@ def test_description():
     assert 'class="wf-description"' not in client.get(f"/workflows/{wid}").text
 
 
+def test_stop_run():
+    # Runs after test_flow: admin (a@x.com) is logged in via module-level `client`.
+    wid = int(client.post("/workflows", data={"name": "Stoppable", "action_prompt": "x"},
+                          follow_redirects=False).headers["location"].split("/")[-1])
+    start = lambda: int(client.post(f"/workflows/{wid}/run", follow_redirects=False)
+                        .headers["location"].split("/")[-1])
+    conn = appmod.connect()
+    st = lambda rid: conn.execute("SELECT status, error FROM runs WHERE id=?", (rid,)).fetchone()
+
+    # pending run: stop ends it immediately and the queue never hands it out
+    rid = start()
+    assert 'action="runs/%d/stop"' % rid in client.get(f"/runs/{rid}").text
+    client.post(f"/runs/{rid}/stop", follow_redirects=False)
+    assert tuple(st(rid)) == ("error", "stopped by user")
+    assert "stopped by" in client.get(f"/runs/{rid}/status").json()["logs"][-1]["message"]
+    assert 'action="runs/%d/stop"' % rid not in client.get(f"/runs/{rid}").text
+
+    # running run: agent sees non-running status; its late report can't overwrite the stop
+    rid = start()
+    while (body := client.post("/api/runs/next", headers=AGENT).json())["run"]["id"] != rid:
+        pass   # drain runs left pending by earlier tests
+    assert client.get(f"/api/runs/{rid}", headers=AGENT).json() == {"status": "running"}
+    assert client.get(f"/api/runs/{rid}").status_code == 401
+    # another user can't stop it (own-or-admin -> else 404)
+    other = TestClient(appmod.app)
+    other.post("/login", data={"email": "b@x.com", "password": "pw"})
+    assert other.post(f"/runs/{rid}/stop", follow_redirects=False).status_code == 404
+    client.post(f"/runs/{rid}/stop", follow_redirects=False)
+    assert client.get(f"/api/runs/{rid}", headers=AGENT).json() == {"status": "error"}
+    client.post(f"/api/runs/{rid}", headers=AGENT, json={"status": "done", "result": "late"})
+    assert tuple(st(rid)) == ("error", "stopped by user")
+    assert client.get("/api/runs/999999", headers=AGENT).status_code == 404
+
+    # stopping a finished run is a no-op
+    client.post(f"/runs/{rid}/stop", follow_redirects=False)
+    assert tuple(st(rid)) == ("error", "stopped by user")
+
+
 if __name__ == "__main__":
     test_classify()
     test_highlight()
@@ -537,3 +575,4 @@ if __name__ == "__main__":
     test_assets()
     test_render_description()
     test_description()
+    test_stop_run()

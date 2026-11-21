@@ -63,7 +63,18 @@ Claude Agent SDK in a per-run sandbox.
   processors deregistered, so it shows as escaped text) and a treeprocessor removes every
   href/src that isn't http(s)/mailto/relative. Never sent into a prompt.
 
+- 2026-11-21 — **Stop a run**: the web side ends the run itself (`status='error'`,
+  `error='stopped by user'`) rather than adding a `stopped` status. `runs.status` has a CHECK
+  constraint, and an SQLite table rebuild would cascade-delete `run_logs`. The worker notices by
+  polling `GET /api/runs/{id}` and cancels the asyncio task; `update_run` ignores late results on
+  finished runs. See cards/run-queue.md + cards/agent-runner.md.
+
 ## Current state / handoff
+
+Runs can be **stopped**: a Stop button on the run page (pending/running, owner or admin). Covered
+by `web/test_smoke.py::test_stop_run` and `agent/test_agent.py::test_handle_stop` /
+`test_watch_for_stop_ignores_web_errors`. **Needs both deploys:** a worker still on the old code
+won't notice a Stop and runs the job to the end, though the web still shows the run as stopped.
 
 Workflows now have an optional markdown **description** (edit form, under Name) shown at the top
 of the workflow page, with links. Covered by `web/test_smoke.py::test_render_description` (XSS /

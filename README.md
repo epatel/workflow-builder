@@ -74,7 +74,10 @@ and start/finish timestamps, and a `files` list of the sandbox contents at finis
 so anything a workflow writes there is lost — have prompts write results to any other name
 (e.g. `result.json`). The run page shows the live agent log, the rendered result,
 and — once the run finishes — an inline **Files** section listing the sandbox (view/download per
-file); during a run the "Browse files" link serves the same listing live.
+file); during a run the "Browse files" link serves the same listing live. A pending or running run
+has a **Stop** button (owner or admin): the run ends immediately as `error` / "stopped by user", and
+the worker cancels the agent within a few seconds (`STOP_POLL_SECONDS`, default 3). Files written so
+far stay in the sandbox.
 
 **Chaining:** an eval prompt can call `next_workflow("Workflow name", "handover note", inputs)` to
 hand off to another workflow, which runs next **in the same sandbox** (it sees every file produced so

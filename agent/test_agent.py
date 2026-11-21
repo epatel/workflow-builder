@@ -153,8 +153,9 @@ def test_chain_loop():
 
 
 class FakeWeb:
-    def __init__(self): self.reports = []
+    def __init__(self, status="running"): self.reports, self.status = [], status
     async def report(self, run_id, **f): self.reports.append(f)
+    async def run_status(self, run_id): return self.status
 
 
 def test_handle_success(monkeypatch_result="summary", should_fail=False):
@@ -233,6 +234,48 @@ def test_pull_assets():
     assert asyncio.run(runner.pull_assets({"id": 7}, sandbox, web, 1)) == []
 
 
+def test_handle_stop():
+    """User presses Stop: the web side flips the run away from 'running'; the watcher
+    cancels the in-flight workflow, nothing is reported back, status.json says stopped."""
+    import json
+    web = FakeWeb()
+    cancelled = []
+
+    async def slow_run(wf, run, sandbox, w):
+        web.status = "error"            # simulate the Stop click while the agent works
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+        return "never"
+
+    runner_orig, poll_orig = worker.runner.run_workflow, worker.STOP_POLL_SECONDS
+    worker.runner.run_workflow, worker.STOP_POLL_SECONDS = slow_run, 0.05
+    worker.SANDBOX_ROOT = Path("/tmp/wf-test-sandboxes")
+    try:
+        asyncio.run(asyncio.wait_for(
+            worker.handle(web, {"run": {"id": 8, "inputs": "{}"}, "workflow": {}}), 5))
+    finally:
+        worker.runner.run_workflow, worker.STOP_POLL_SECONDS = runner_orig, poll_orig
+    assert cancelled == [True]
+    assert [r for r in web.reports if "status" in r] == []      # web already finalized it
+    data = json.loads((worker.SANDBOX_ROOT / "8" / "status.json").read_text())
+    assert data["status"] == "stopped" and data["error"] == "stopped by user"
+
+
+def test_watch_for_stop_ignores_web_errors():
+    """A failing status poll must not stop the run."""
+    class FlakyWeb:
+        async def run_status(self, run_id): raise RuntimeError("web down")
+
+    async def go():
+        task = asyncio.create_task(asyncio.sleep(0.2, result="ok"))
+        stopped = await worker.watch_for_stop(FlakyWeb(), 1, task, interval=0.02)
+        return stopped, await task
+    assert asyncio.run(go()) == (False, "ok")
+
+
 if __name__ == "__main__":
     test_tools_config()
     test_compose_prompt()
@@ -243,4 +286,6 @@ if __name__ == "__main__":
     test_build_status()
     test_handle_success()                       # success path
     test_handle_success(should_fail=True)       # failure path reports error
+    test_handle_stop()
+    test_watch_for_stop_ignores_web_errors()
     print("OK")

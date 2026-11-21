@@ -1,5 +1,6 @@
 """Run one workflow with the Claude Agent SDK inside a per-run sandbox folder."""
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -158,16 +159,19 @@ def is_transient_error(msg: str) -> bool:
 async def _run_query_once(prompt: str, options: ClaudeAgentOptions) -> str:
     """Run a query to completion, return the final result text."""
     final, texts = None, []
-    async for msg in query(prompt=prompt, options=options):
-        if isinstance(msg, AssistantMessage):
-            texts += [b.text for b in msg.content if isinstance(b, TextBlock)]
-        elif isinstance(msg, ResultMessage):
-            if msg.is_error:
-                if msg.subtype == "error_max_turns":
-                    raise RuntimeError(f"run stopped: hit the {msg.num_turns}-turn limit "
-                                       "(MAX_TURNS) before finishing")
-                raise RuntimeError(msg.result or "agent run failed")
-            final = msg.result
+    # aclosing: if the run is stopped (task cancelled) mid-query, close the generator
+    # right away so the SDK shuts down its CLI subprocess instead of leaving it to GC.
+    async with contextlib.aclosing(query(prompt=prompt, options=options)) as messages:
+        async for msg in messages:
+            if isinstance(msg, AssistantMessage):
+                texts += [b.text for b in msg.content if isinstance(b, TextBlock)]
+            elif isinstance(msg, ResultMessage):
+                if msg.is_error:
+                    if msg.subtype == "error_max_turns":
+                        raise RuntimeError(f"run stopped: hit the {msg.num_turns}-turn limit "
+                                           "(MAX_TURNS) before finishing")
+                    raise RuntimeError(msg.result or "agent run failed")
+                final = msg.result
     return final or "\n".join(texts)
 
 

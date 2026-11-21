@@ -6,6 +6,15 @@ How the agent executes one workflow with the Claude Agent SDK. `agent/runner.py`
 sandbox path, run the workflow, report `done` + result (or catch any exception and report `error`).
 One job at a time; failures never kill the loop. Run more processes for more throughput.
 
+**Stop** (`worker.handle` + `watch_for_stop`): the workflow runs as an asyncio task alongside a
+watcher that polls `GET /api/runs/{id}` every `STOP_POLL_SECONDS` (default 3). When the web side
+no longer says `running` (the user pressed Stop, or the run was deleted), the watcher cancels the
+task. A failed poll is not a stop. `_run_query_once` wraps `query()` in `contextlib.aclosing`, so
+cancelling closes the SDK generator right away and its Claude CLI subprocess goes with it (checked
+against a live query: no child process left). A stopped run reports nothing back, since the web
+already finished it, and its `status.json` says `"status": "stopped"`. If cancelling surfaces as
+an ordinary SDK exception instead of `CancelledError`, it is still treated as a stop.
+
 **status.json** (`worker.handle`): the worker times each run with a monotonic clock and, in a
 `finally` block, writes `status.json` into the run's sandbox — `{run_id, status, started_at,
 finished_at, total_seconds, files}` (plus `error` on failure). `total_seconds` is the total

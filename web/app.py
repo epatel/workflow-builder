@@ -39,6 +39,7 @@ AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 # Agent host's sandbox file API, reachable from the web host (e.g. https://home.memention.net/workflow-agent).
 AGENT_FILES_URL = os.getenv("AGENT_FILES_URL", "")
 TOKEN_TTL_HOURS = 24
+STOPPED_ERROR = "stopped by user"
 
 app = FastAPI(title="Workflow Builder")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
@@ -1118,6 +1119,27 @@ def run_status(rid: int, user=Depends(current_user)):
     return {"status": r["status"], "result": r["result"], "error": r["error"], "logs": logs}
 
 
+@app.post("/runs/{rid}/stop")
+def stop_run(request: Request, rid: int, user=Depends(current_user)):
+    """Stop a pending or running run (owner or admin). The run ends here and now as
+    status 'error' / error 'stopped by user', so it never depends on the agent being up;
+    a pending run is simply never claimed, and the worker running a claimed one sees the
+    status change on its next poll (GET /api/runs/{id}) and cancels the SDK query."""
+    conn = connect()
+    try:
+        _owned_run(conn, rid, user)
+        cur = conn.execute(
+            "UPDATE runs SET status='error', error=?, updated_at=datetime('now') "
+            "WHERE id=? AND status IN ('pending','running')", (STOPPED_ERROR, rid))
+        if cur.rowcount:
+            conn.execute("INSERT INTO run_logs (run_id, message) VALUES (?,?)",
+                         (rid, f"⏹ stopped by {user['email']}"))
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(request, f"/runs/{rid}")
+
+
 def _agent_files(method: str, path: str, **kw):
     """Proxy to the agent host's sandbox file API with the service token."""
     if not AGENT_FILES_URL:
@@ -1419,16 +1441,37 @@ def append_run_log(rid: int, payload: dict, authorization: str | None = Header(N
     return {"ok": True}
 
 
+@app.get("/api/runs/{rid}")
+def agent_run_status(rid: int, authorization: str | None = Header(None)):
+    """The worker polls this while running a job; anything but 'running' means stop."""
+    _check_agent(authorization)
+    conn = connect()
+    try:
+        r = conn.execute("SELECT status FROM runs WHERE id=?", (rid,)).fetchone()
+    finally:
+        conn.close()
+    if r is None:
+        raise HTTPException(404, "Run not found")
+    return {"status": r["status"]}
+
+
 @app.post("/api/runs/{rid}")
 def update_run(rid: int, payload: dict, authorization: str | None = Header(None)):
-    """Agent reports progress/result. Accepts status, result, error, sandbox_path."""
+    """Agent reports progress/result. Accepts status, result, error, sandbox_path.
+    A run that already finished (e.g. stopped by the user) keeps its outcome: a late
+    status/result/error from the worker is ignored."""
     _check_agent(authorization)
     fields = {k: payload[k] for k in ("status", "result", "error", "sandbox_path") if k in payload}
     if not fields:
         raise HTTPException(400, "Nothing to update")
-    sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=datetime('now')"
     conn = connect()
     try:
+        r = conn.execute("SELECT status FROM runs WHERE id=?", (rid,)).fetchone()
+        if r is not None and r["status"] in ("done", "error"):
+            fields = {k: v for k, v in fields.items() if k == "sandbox_path"}
+            if not fields:
+                return {"ok": True, "ignored": True}
+        sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=datetime('now')"
         conn.execute(f"UPDATE runs SET {sets} WHERE id=?", (*fields.values(), rid))
         conn.commit()
     finally:

@@ -37,6 +37,14 @@ class WebClient:
         r.raise_for_status()
         return r.json()
 
+    async def run_status(self, run_id: int) -> str | None:
+        """The run's current status on the web side; None if the run no longer exists."""
+        r = await self._req("GET", f"/api/runs/{run_id}")
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()["status"]
+
     async def report(self, run_id: int, **fields):
         """Update a run: status, result, error, sandbox_path."""
         r = await self._req("POST", f"/api/runs/{run_id}", json=fields)

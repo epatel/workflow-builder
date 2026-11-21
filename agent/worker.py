@@ -23,6 +23,7 @@ WEB_URL = os.getenv("WEB_URL", "http://localhost:8000")
 AGENT_TOKEN = os.environ["AGENT_TOKEN"]  # required; matches the web server's token
 SANDBOX_ROOT = Path(os.getenv("SANDBOX_ROOT", Path(__file__).parent / "sandboxes"))
 POLL_SECONDS = float(os.getenv("POLL_SECONDS", "3"))
+STOP_POLL_SECONDS = float(os.getenv("STOP_POLL_SECONDS", "3"))  # how often a live run checks for Stop
 HTTP_PORT = int(os.getenv("AGENT_HTTP_PORT", "9006"))  # sandbox file API (behind Apache)
 
 
@@ -55,6 +56,24 @@ def write_status(sandbox: Path, data: dict):
         print(f"[run {data.get('run_id')}] could not write status.json: {e}")
 
 
+async def watch_for_stop(web: WebClient, run_id, task: asyncio.Task,
+                         interval: float | None = None) -> bool:
+    """Cancel `task` once the web side no longer has this run as 'running' — the user
+    pressed Stop (or the run was deleted). Returns True if it cancelled. A web hiccup
+    is not a stop: on a failed poll the run keeps going."""
+    interval = STOP_POLL_SECONDS if interval is None else interval
+    while not task.done():
+        await asyncio.sleep(interval)
+        try:
+            status = await web.run_status(run_id)
+        except Exception:
+            continue
+        if status != "running" and not task.done():
+            task.cancel()
+            return True
+    return False
+
+
 async def handle(web: WebClient, job: dict):
     run, wf = job["run"], job["workflow"]
     sandbox = SANDBOX_ROOT / str(run["id"])
@@ -63,15 +82,30 @@ async def handle(web: WebClient, job: dict):
     started_at = datetime.now(timezone.utc)
     t0 = time.monotonic()
     status, error = "done", None
+    task = asyncio.create_task(runner.run_workflow(wf, run, sandbox, web))
+    watcher = asyncio.create_task(watch_for_stop(web, run["id"], task))
     try:
-        result = await runner.run_workflow(wf, run, sandbox, web)
-        await web.report(run["id"], status="done", result=result)
-        print(f"[run {run['id']}] done")
+        try:
+            result = await task
+        except asyncio.CancelledError:
+            if not (watcher.done() and watcher.result()):
+                raise   # the worker itself is being cancelled — not a user stop
+            # Stopped by the user: the web side already marked the run finished.
+            status, error = "stopped", "stopped by user"
+            print(f"[run {run['id']}] stopped by user")
+        else:
+            await web.report(run["id"], status="done", result=result)
+            print(f"[run {run['id']}] done")
     except Exception as e:  # report failure, keep the worker alive
-        status, error = "error", str(e)
-        await web.report(run["id"], status="error", error=error)
-        print(f"[run {run['id']}] error: {e}")
+        if watcher.done() and watcher.result():   # cancel surfaced as an SDK error
+            status, error = "stopped", "stopped by user"
+            print(f"[run {run['id']}] stopped by user ({e})")
+        else:
+            status, error = "error", str(e)
+            await web.report(run["id"], status="error", error=error)
+            print(f"[run {run['id']}] error: {e}")
     finally:
+        watcher.cancel()
         elapsed = time.monotonic() - t0
         try:
             files = runner.list_files(sandbox)

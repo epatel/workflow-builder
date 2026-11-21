@@ -11,6 +11,8 @@ Apache at `/workflow-agent`):
 - `GET /sandbox/{run_id}` → `{files: [{path, size}]}` (recursive `rglob`).
 - `GET /sandbox/{run_id}/file?path=…&dl=0|1` → file bytes, inline or `attachment`.
 - `DELETE /sandbox/{run_id}` → removes the sandbox.
+- `GET /sandboxes` → `{run_ids: [...]}`: numeric sandbox dirs on this host. The web side compares
+  it with `runs` to find orphans (admin "Clean up orphaned files").
 - `POST /mcp/test` with a server config body (`{type, url, headers?}`) → probes that server from
   **this** host and returns `{ok, server, version, tools}` or `{ok: false, error}`. Not a file
   route, but it lives here because it needs the agent host's network view (Admin → Tools "Test").

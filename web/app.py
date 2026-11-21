@@ -229,7 +229,8 @@ def reset(request: Request, token: str = Form(...), password: str = Form(...)):
 # ---------- admin ----------
 
 @app.get("/admin", response_class=HTMLResponse)
-def admin(request: Request, user=Depends(require_role("admin"))):
+def admin(request: Request, cleaned_sandboxes: int | None = None, cleaned_uploads: int | None = None,
+          cleanup_error: str = "", user=Depends(require_role("admin"))):
     conn = connect()
     try:
         users = conn.execute("SELECT * FROM users ORDER BY id").fetchall()
@@ -255,7 +256,8 @@ def admin(request: Request, user=Depends(require_role("admin"))):
         conn.close()
     return page(request, "admin.html", user=user, users=users, invites=invites, sets=sets,
                 runs=runs, run_total=run_total, user_sets=user_sets, invite_sets=invite_sets,
-                set_name=set_name, mcp_tools=mcp_tools)
+                set_name=set_name, mcp_tools=mcp_tools, cleaned_sandboxes=cleaned_sandboxes,
+                cleaned_uploads=cleaned_uploads, cleanup_error=cleanup_error)
 
 
 def _validate_tool_config(config: str) -> str:
@@ -443,6 +445,50 @@ def _delete_run(conn, rid: int):
     conn.execute("DELETE FROM runs WHERE id=?", (rid,))  # run_logs cascade (FK on)
 
 
+def _runs_cascading_from_user(conn, uid: int) -> list[int]:
+    """Runs a user delete takes with it via FK cascade: the user's own runs, plus every
+    run of a workflow they own (other people's runs of it included)."""
+    return [r["id"] for r in conn.execute(
+        "SELECT id FROM runs WHERE user_id=? OR workflow_id IN "
+        "(SELECT id FROM workflows WHERE owner_id=?)", (uid, uid))]
+
+
+def _cleanup_orphans(conn) -> dict:
+    """Remove sandboxes (agent host) and upload dirs (web host) whose run row is gone —
+    left behind by deletes while the agent was unreachable, or older cascades."""
+    live = {r["id"] for r in conn.execute("SELECT id FROM runs")}
+    removed = {"sandboxes": 0, "uploads": 0, "agent_error": None}
+    if UPLOADS.is_dir():
+        for d in UPLOADS.iterdir():
+            if d.is_dir() and d.name.isdigit() and int(d.name) not in live:
+                shutil.rmtree(d, ignore_errors=True)
+                removed["uploads"] += 1
+    if AGENT_FILES_URL:
+        try:
+            resp = _agent_files("GET", "/sandboxes")
+            resp.raise_for_status()
+            for rid in resp.json().get("run_ids", []):
+                if rid not in live:
+                    _agent_files("DELETE", f"/sandbox/{int(rid)}")
+                    removed["sandboxes"] += 1
+        except Exception as e:
+            removed["agent_error"] = f"could not reach the agent host: {e}"
+    return removed
+
+
+@app.post("/admin/runs/cleanup")
+def admin_cleanup_runs(request: Request, user=Depends(require_role("admin"))):
+    conn = connect()
+    try:
+        r = _cleanup_orphans(conn)
+    finally:
+        conn.close()
+    q = f"?cleaned_sandboxes={r['sandboxes']}&cleaned_uploads={r['uploads']}"
+    if r["agent_error"]:
+        q += "&cleanup_error=" + quote(r["agent_error"])
+    return redirect(request, "/admin" + q)
+
+
 @app.post("/admin/runs/{rid}/delete")
 def admin_delete_run(request: Request, rid: int, user=Depends(require_role("admin"))):
     conn = connect()
@@ -496,6 +542,8 @@ def admin_user(request: Request, uid: int, action: str, user=Depends(require_rol
         elif action == "unblock":
             conn.execute("UPDATE users SET status='active' WHERE id=?", (uid,))
         elif action == "delete":
+            for rid in _runs_cascading_from_user(conn, uid):   # files first; rows cascade anyway
+                _delete_run(conn, rid)
             conn.execute("DELETE FROM users WHERE id=?", (uid,))
         else:
             raise HTTPException(400, "Unknown action")
@@ -1138,6 +1186,23 @@ def stop_run(request: Request, rid: int, user=Depends(current_user)):
     finally:
         conn.close()
     return redirect(request, f"/runs/{rid}")
+
+
+@app.post("/runs/{rid}/delete")
+def delete_run(request: Request, rid: int, user=Depends(current_user)):
+    """Delete one of your runs (admins: any) with its logs, uploaded inputs and sandbox.
+    A running run must be stopped first — deleting its sandbox under a live agent would
+    race the agent's writes. A pending run is deleted outright (never claimed)."""
+    conn = connect()
+    try:
+        r = _owned_run(conn, rid, user)
+        if r["status"] == "running":
+            raise HTTPException(409, "Stop the run before deleting it.")
+        _delete_run(conn, rid)
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(request, "/runs")
 
 
 def _agent_files(method: str, path: str, **kw):

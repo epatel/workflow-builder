@@ -77,7 +77,10 @@ and — once the run finishes — an inline **Files** section listing the sandbo
 file); during a run the "Browse files" link serves the same listing live. A pending or running run
 has a **Stop** button (owner or admin): the run ends immediately as `error` / "stopped by user", and
 the worker cancels the agent within a few seconds (`STOP_POLL_SECONDS`, default 3). Files written so
-far stay in the sandbox.
+far stay in the sandbox. A finished (or still-pending) run can be **deleted** by its owner from
+the run page or the Runs list; this removes its log, uploaded inputs and sandbox. Stop a running
+run before deleting it. Admins also get purge-by-age and **Clean up orphaned files**, which
+sweeps sandboxes/uploads left without a run (e.g. deleted while the agent host was down).
 
 **Chaining:** an eval prompt can call `next_workflow("Workflow name", "handover note", inputs)` to
 hand off to another workflow, which runs next **in the same sandbox** (it sees every file produced so

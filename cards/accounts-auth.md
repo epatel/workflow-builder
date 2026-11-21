@@ -43,4 +43,17 @@ You cannot act on your own account through this route.
 **Admin run cleanup:** the admin page lists recent runs with a per-run delete
 (`POST /admin/runs/{id}/delete`) and a purge-by-age form (`POST /admin/runs/purge`, `days`). Both go
 through `_delete_run`, which removes the sandbox on the agent host (DELETE `/sandbox/{id}`, best-effort),
-the uploaded inputs, and the DB row (logs cascade).
+the uploaded inputs, and the DB row (logs cascade). Users can delete their **own** runs too
+(`POST /runs/{id}/delete`, Delete on the run page and in `/runs`; own-or-admin via `_owned_run`,
+else 404). A `running` run is refused with 409, so it has to be stopped first; otherwise the
+sandbox would be deleted while the agent is still writing to it. The admin route has no such
+check: if an admin deletes a running run, the worker's stop watcher gets a 404 and cancels it.
+
+**Deleting a user** runs `_delete_run` on every run the FK cascade would take
+(`_runs_cascading_from_user`: the user's runs *plus every run of a workflow they own*, including
+other people's runs) before the row goes, so their files aren't orphaned.
+**Clean up orphaned files** (`POST /admin/runs/cleanup`, `_cleanup_orphans`) removes leftovers
+that no run row points to anymore: numeric `uploads/<id>/` dirs on the web host, and sandboxes
+on the agent host (listed via `GET /sandboxes`). These come from deletes made while the agent
+was unreachable, or from user deletes before this fix. If the agent is unreachable, that's
+reported on the admin page and upload cleanup still runs.

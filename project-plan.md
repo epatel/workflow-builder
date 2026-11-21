@@ -69,7 +69,19 @@ Claude Agent SDK in a per-run sandbox.
   polling `GET /api/runs/{id}` and cancels the asyncio task; `update_run` ignores late results on
   finished runs. See cards/run-queue.md + cards/agent-runner.md.
 
+- 2026-11-21 — **Delete runs + cleanup**: users can delete their own non-running runs (running →
+  409, stop first). Deleting a user now removes the files of every run the FK cascade takes
+  (including other users' runs of the deleted user's workflows), which used to orphan sandboxes
+  and uploads. A new admin sweep (`/admin/runs/cleanup`) uses a new agent `GET /sandboxes` to
+  remove orphans. See cards/accounts-auth.md.
+
 ## Current state / handoff
+
+Runs can be **deleted** by their owner (run page / Runs list), and admins have **Clean up orphaned
+files**. Covered by `web/test_logic.py` (`test_user_deletes_own_run_with_cleanup`,
+`test_admin_user_delete_cleans_cascaded_run_files`, `test_admin_cleanup_orphans`) and the
+`/sandboxes` assertions in `agent/test_agent.py::test_files_api`. The orphan sweep needs the new
+agent deployed (`GET /sandboxes`); against an old agent it reports an error and only cleans uploads.
 
 Runs can be **stopped**: a Stop button on the run page (pending/running, owner or admin). Covered
 by `web/test_smoke.py::test_stop_run` and `agent/test_agent.py::test_handle_stop` /

@@ -172,6 +172,132 @@ def test_admin_purge_runs_by_age():
     assert old not in rows and fresh in rows
 
 
+class _FakeAgent:
+    """Stands in for the agent file API (`_agent_files`): a set of run ids with sandboxes."""
+    def __init__(self, ids): self.ids, self.deleted = set(ids), []
+
+    def __call__(self, method, path, **kw):
+        import httpx
+        req = httpx.Request(method, "http://agent" + path)
+        if method == "GET" and path == "/sandboxes":
+            return httpx.Response(200, json={"run_ids": sorted(self.ids)}, request=req)
+        if method == "DELETE" and path.startswith("/sandbox/"):
+            rid = int(path.rsplit("/", 1)[1])
+            self.ids.discard(rid); self.deleted.append(rid)
+            return httpx.Response(200, json={"ok": True}, request=req)
+        raise AssertionError(f"unexpected agent call {method} {path}")
+
+
+def _with_agent(fake):
+    orig = (appmod._agent_files, appmod.AGENT_FILES_URL)
+    appmod._agent_files, appmod.AGENT_FILES_URL = fake, "http://agent"
+    return orig
+
+
+def _restore_agent(orig):
+    appmod._agent_files, appmod.AGENT_FILES_URL = orig
+
+
+def _mkrun(conn, wid, uid, status="done"):
+    rid = conn.execute("INSERT INTO runs (workflow_id,user_id,status) VALUES (?,?,?)",
+                       (wid, uid, status)).lastrowid
+    conn.execute("INSERT INTO run_logs (run_id,message) VALUES (?,'hi')", (rid,))
+    (appmod.UPLOADS / str(rid)).mkdir(parents=True, exist_ok=True)
+    (appmod.UPLOADS / str(rid) / "in.txt").write_text("x")
+    return rid
+
+
+def test_user_deletes_own_run_with_cleanup():
+    """A user deletes their own finished run: row, logs, uploads and sandbox all go.
+    Running runs are refused (stop first); other users' runs are invisible (404)."""
+    conn = appmod.connect()
+    uid = _mkuser(conn, "deleter@x.com", "user")
+    other = _mkuser(conn, "bystander@x.com", "user")
+    wid = conn.execute("INSERT INTO workflows (owner_id,name) VALUES (?,'del-wf')", (uid,)).lastrowid
+    mine, live, theirs = _mkrun(conn, wid, uid), _mkrun(conn, wid, uid, "running"), _mkrun(conn, wid, other)
+    conn.commit()
+    fake = _FakeAgent({mine, live, theirs})
+    orig = _with_agent(fake)
+    try:
+        c = TestClient(appmod.app)
+        c.post("/login", data={"email": "deleter@x.com", "password": "pw"})
+        r = c.post(f"/runs/{mine}/delete", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].endswith("/runs")
+        assert conn.execute("SELECT 1 FROM runs WHERE id=?", (mine,)).fetchone() is None
+        assert conn.execute("SELECT 1 FROM run_logs WHERE run_id=?", (mine,)).fetchone() is None
+        assert not (appmod.UPLOADS / str(mine)).exists() and fake.deleted == [mine]
+
+        assert c.post(f"/runs/{live}/delete", follow_redirects=False).status_code == 409
+        assert c.post(f"/runs/{theirs}/delete", follow_redirects=False).status_code == 404
+        assert conn.execute("SELECT COUNT(*) c FROM runs WHERE id IN (?,?)",
+                            (live, theirs)).fetchone()["c"] == 2
+        assert fake.deleted == [mine]
+    finally:
+        _restore_agent(orig)
+        conn.close()
+
+
+def test_admin_user_delete_cleans_cascaded_run_files():
+    """Deleting a user cascades away their runs and their workflows' runs (others' too);
+    those runs' sandboxes and uploads must be removed, not orphaned."""
+    conn = appmod.connect()
+    admin_id = _mkuser(conn, "ua@x.com", "admin")
+    victim = _mkuser(conn, "victim@x.com", "editor")
+    keeper = _mkuser(conn, "keeper@x.com", "user")
+    v_wf = conn.execute("INSERT INTO workflows (owner_id,name) VALUES (?,'v-wf')", (victim,)).lastrowid
+    a_wf = conn.execute("INSERT INTO workflows (owner_id,name) VALUES (?,'a-wf')", (admin_id,)).lastrowid
+    own = _mkrun(conn, a_wf, victim)          # victim's run of someone else's workflow
+    on_wf = _mkrun(conn, v_wf, keeper)        # someone else's run of victim's workflow
+    safe = _mkrun(conn, a_wf, keeper)         # unrelated
+    conn.commit()
+    fake = _FakeAgent({own, on_wf, safe})
+    orig = _with_agent(fake)
+    try:
+        c = TestClient(appmod.app)
+        c.post("/login", data={"email": "ua@x.com", "password": "pw"})
+        assert c.post(f"/admin/users/{victim}/delete", follow_redirects=False).status_code == 303
+        assert sorted(fake.deleted) == sorted([own, on_wf])
+        assert not (appmod.UPLOADS / str(own)).exists() and not (appmod.UPLOADS / str(on_wf)).exists()
+        assert (appmod.UPLOADS / str(safe)).exists()
+        rows = {r["id"] for r in conn.execute("SELECT id FROM runs")}
+        assert safe in rows and own not in rows and on_wf not in rows
+    finally:
+        _restore_agent(orig)
+        conn.close()
+
+
+def test_admin_cleanup_orphans():
+    """Cleanup removes sandboxes/upload dirs with no run row and leaves live runs alone;
+    an unreachable agent is reported, while upload cleanup still happens."""
+    conn = appmod.connect()
+    admin_id = _mkuser(conn, "janitor@x.com", "admin")
+    wid = conn.execute("INSERT INTO workflows (owner_id,name) VALUES (?,'j-wf')", (admin_id,)).lastrowid
+    live = _mkrun(conn, wid, admin_id)
+    conn.commit()
+    (appmod.UPLOADS / "987654").mkdir()       # orphan upload dir
+    (appmod.UPLOADS / "notes").mkdir(exist_ok=True)   # non-run dir: left alone
+    fake = _FakeAgent({live, 987654, 987655})
+    orig = _with_agent(fake)
+    try:
+        c = TestClient(appmod.app)
+        c.post("/login", data={"email": "janitor@x.com", "password": "pw"})
+        r = c.post("/admin/runs/cleanup", follow_redirects=False)
+        assert "cleaned_sandboxes=2" in r.headers["location"]
+        assert "cleaned_uploads=1" in r.headers["location"]
+        assert sorted(fake.deleted) == [987654, 987655] and fake.ids == {live}
+        assert (appmod.UPLOADS / str(live)).exists() and (appmod.UPLOADS / "notes").exists()
+        assert "Removed 2 sandbox(es), 1 upload folder(s)" in c.get(r.headers["location"]).text
+
+        def down(*a, **k): raise RuntimeError("connection refused")
+        appmod._agent_files = down
+        r = c.post("/admin/runs/cleanup", follow_redirects=False)
+        assert "cleanup_error=" in r.headers["location"]
+        assert "could not reach the agent host" in c.get(r.headers["location"]).text
+    finally:
+        _restore_agent(orig)
+        conn.close()
+
+
 if __name__ == "__main__":
     test_save_workflow_sets_authorization()
     test_admin_save_workflow_sets_is_unrestricted()
@@ -179,4 +305,7 @@ if __name__ == "__main__":
     test_password_reset_flow_end_to_end()
     test_upload_filename_is_sanitized_to_basename()
     test_admin_purge_runs_by_age()
+    test_user_deletes_own_run_with_cleanup()
+    test_admin_user_delete_cleans_cascaded_run_files()
+    test_admin_cleanup_orphans()
     print("OK")

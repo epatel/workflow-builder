@@ -6,6 +6,11 @@
   <form id="stop-form" method="post" action="runs/{{ run.id }}/stop" style="display:inline;margin-left:.6rem"
         data-confirm="Stop run #{{ run.id }}? The agent is cancelled; files written so far stay in the sandbox.">
     <button class="danger">Stop</button></form>
+{% endif %}
+{% if run.status != 'running' %}
+  <form method="post" action="runs/{{ run.id }}/delete" style="display:inline;margin-left:.6rem"
+        data-confirm="Delete run #{{ run.id }}? Its log, uploaded inputs and sandbox files are removed for good.">
+    <button class="danger">Delete</button></form>
 {% endif %}</p>
 
 <div class="term">

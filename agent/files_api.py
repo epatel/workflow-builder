@@ -139,6 +139,17 @@ async def test_mcp(config: dict = Body(...), authorization: str | None = Header(
         return {"ok": False, "error": f"{type(e).__name__}: {e}".strip(": ")}
 
 
+@app.get("/sandboxes")
+def list_sandboxes(authorization: str | None = Header(None)):
+    """Run ids that have a sandbox on this host — the web side diffs it against its runs
+    table to find orphans (sandboxes whose run row is gone)."""
+    _auth(authorization)
+    if not SANDBOX_ROOT.is_dir():
+        return {"run_ids": []}
+    return {"run_ids": sorted(int(d.name) for d in SANDBOX_ROOT.iterdir()
+                              if d.is_dir() and d.name.isdigit())}
+
+
 @app.delete("/sandbox/{run_id}")
 def delete_sandbox(run_id: int, authorization: str | None = Header(None)):
     _auth(authorization)

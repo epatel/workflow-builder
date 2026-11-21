@@ -32,8 +32,14 @@ def test_files_api():
     assert c.get("/sandbox/999", headers=auth).status_code == 404  # missing sandbox
     # path traversal is refused
     assert c.get("/sandbox/5/file", params={"path": "../../etc/passwd"}, headers=auth).status_code == 400
+    # /sandboxes lists run ids with a sandbox (numeric dirs only), token-gated
+    (Path(os.environ["SANDBOX_ROOT"]) / "not-a-run").mkdir(exist_ok=True)
+    assert c.get("/sandboxes").status_code == 401
+    assert 5 in c.get("/sandboxes", headers=auth).json()["run_ids"]
+    assert all(isinstance(i, int) for i in c.get("/sandboxes", headers=auth).json()["run_ids"])
     # delete removes the sandbox
     assert c.delete("/sandbox/5", headers=auth).status_code == 200
+    assert 5 not in c.get("/sandboxes", headers=auth).json()["run_ids"]
     assert not sb.exists()
     assert c.get("/sandbox/5", headers=auth).status_code == 404
 

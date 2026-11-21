@@ -181,6 +181,10 @@ class _FakeAgent:
         req = httpx.Request(method, "http://agent" + path)
         if method == "GET" and path == "/sandboxes":
             return httpx.Response(200, json={"run_ids": sorted(self.ids)}, request=req)
+        if method == "GET" and path.startswith("/sandbox/"):
+            rid = int(path.rsplit("/", 1)[1])
+            files = [{"path": "a", "size": 1000}, {"path": "b/c", "size": 24}] if rid in self.ids else []
+            return httpx.Response(200 if rid in self.ids else 404, json={"files": files}, request=req)
         if method == "DELETE" and path.startswith("/sandbox/"):
             rid = int(path.rsplit("/", 1)[1])
             self.ids.discard(rid); self.deleted.append(rid)
@@ -287,6 +291,11 @@ def test_admin_cleanup_orphans():
         assert sorted(fake.deleted) == [987654, 987655] and fake.ids == {live}
         assert (appmod.UPLOADS / str(live)).exists() and (appmod.UPLOADS / "notes").exists()
         assert "Removed 2 sandbox(es), 1 upload folder(s)" in c.get(r.headers["location"]).text
+        # the live finished run had no size yet: measured from the agent listing
+        assert "measured=1" in r.headers["location"]
+        assert conn.execute("SELECT disk_bytes FROM runs WHERE id=?", (live,)).fetchone()[0] == 1024
+        r = c.post("/admin/runs/cleanup", follow_redirects=False)
+        assert "measured=0" in r.headers["location"]        # already measured: not re-fetched
 
         def down(*a, **k): raise RuntimeError("connection refused")
         appmod._agent_files = down

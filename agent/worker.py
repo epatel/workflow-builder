@@ -74,6 +74,69 @@ async def watch_for_stop(web: WebClient, run_id, task: asyncio.Task,
     return False
 
 
+def sandbox_bytes(sandbox: Path) -> int:
+    """Total size of every regular file under the sandbox (apparent size, symlinks not
+    followed). Reported as the run's disk usage so users can see what deleting it frees."""
+    total = 0
+    for dirpath, _dirs, names in os.walk(sandbox):
+        for n in names:
+            p = Path(dirpath) / n
+            try:
+                if not p.is_symlink():
+                    total += p.stat().st_size
+            except OSError:
+                pass   # vanished mid-walk — ignore
+    return total
+
+
+def _stopped_outcome():
+    # Stopped by the user: the web side already finished the run, so the final report
+    # carries only bookkeeping (disk_bytes).
+    return "stopped", "stopped by user", {}
+
+
+async def _run_outcome(task: asyncio.Task, watcher: asyncio.Task, run_id):
+    """Await the workflow task; return (status, error, final-report fields). Re-raises a
+    CancelledError that isn't a user stop (the worker itself is shutting down)."""
+    def user_stopped():
+        return watcher.done() and watcher.result()
+    try:
+        result = await task
+    except asyncio.CancelledError:
+        if not user_stopped():
+            raise
+        print(f"[run {run_id}] stopped by user")
+        return _stopped_outcome()
+    except Exception as e:  # report failure, keep the worker alive
+        if user_stopped():   # the cancel surfaced as an SDK error
+            print(f"[run {run_id}] stopped by user ({e})")
+            return _stopped_outcome()
+        print(f"[run {run_id}] error: {e}")
+        return "error", str(e), {"status": "error", "error": str(e)}
+    print(f"[run {run_id}] done")
+    return "done", None, {"status": "done", "result": result}
+
+
+def _safe_list_files(sandbox: Path):
+    try:
+        return runner.list_files(sandbox)
+    except Exception:  # listing is bookkeeping too — never fail the run over it
+        return None
+
+
+async def _final_report(web: WebClient, run_id, sandbox: Path, outcome: dict):
+    """One final report: the outcome plus the sandbox size (measured after status.json is
+    written), so the run page shows the size as soon as it sees the run finish."""
+    try:
+        outcome["disk_bytes"] = sandbox_bytes(sandbox)
+    except Exception:
+        pass
+    try:
+        await web.report(run_id, **outcome)
+    except Exception as e:   # never let a failed report kill the poll loop
+        print(f"[run {run_id}] could not report outcome: {e}")
+
+
 async def handle(web: WebClient, job: dict):
     run, wf = job["run"], job["workflow"]
     sandbox = SANDBOX_ROOT / str(run["id"])
@@ -81,39 +144,21 @@ async def handle(web: WebClient, job: dict):
     await web.report(run["id"], sandbox_path=str(sandbox))
     started_at = datetime.now(timezone.utc)
     t0 = time.monotonic()
-    status, error = "done", None
     task = asyncio.create_task(runner.run_workflow(wf, run, sandbox, web))
     watcher = asyncio.create_task(watch_for_stop(web, run["id"], task))
+    # If the worker itself is cancelled mid-run, nothing is reported (the next startup
+    # reaps the run) and status.json says so.
+    status, error, outcome = "error", "worker shut down mid-run", None
     try:
-        try:
-            result = await task
-        except asyncio.CancelledError:
-            if not (watcher.done() and watcher.result()):
-                raise   # the worker itself is being cancelled — not a user stop
-            # Stopped by the user: the web side already marked the run finished.
-            status, error = "stopped", "stopped by user"
-            print(f"[run {run['id']}] stopped by user")
-        else:
-            await web.report(run["id"], status="done", result=result)
-            print(f"[run {run['id']}] done")
-    except Exception as e:  # report failure, keep the worker alive
-        if watcher.done() and watcher.result():   # cancel surfaced as an SDK error
-            status, error = "stopped", "stopped by user"
-            print(f"[run {run['id']}] stopped by user ({e})")
-        else:
-            status, error = "error", str(e)
-            await web.report(run["id"], status="error", error=error)
-            print(f"[run {run['id']}] error: {e}")
+        status, error, outcome = await _run_outcome(task, watcher, run["id"])
     finally:
         watcher.cancel()
         elapsed = time.monotonic() - t0
-        try:
-            files = runner.list_files(sandbox)
-        except Exception:  # listing is bookkeeping too — never fail the run over it
-            files = None
-        write_status(sandbox, build_status(run["id"], status, started_at,
-                                           datetime.now(timezone.utc), elapsed, error, files))
+        write_status(sandbox, build_status(run["id"], status, started_at, datetime.now(timezone.utc),
+                                           elapsed, error, _safe_list_files(sandbox)))
         print(f"[run {run['id']}] total running time {elapsed:.3f}s")
+        if outcome is not None:
+            await _final_report(web, run["id"], sandbox, outcome)
 
 
 async def poll_loop(web: WebClient):

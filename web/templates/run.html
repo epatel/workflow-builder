@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Run <span class="mono">#{{ run.id }}</span></h1>
-<p><span id="status" class="status st-{{ run.status }}">{{ run.status }}</span> · <a href="runs/{{ run.id }}/files">Browse files</a>
+<p><span id="status" class="status st-{{ run.status }}">{{ run.status }}</span> · <a href="runs/{{ run.id }}/files">Browse files</a>{% if run.disk_bytes is not none %} · <span title="{{ run.disk_bytes }} bytes">{{ run.disk_bytes|filesizeformat }} on disk</span>{% endif %}
 {% if run.status in ('pending', 'running') %}
   <form id="stop-form" method="post" action="runs/{{ run.id }}/stop" style="display:inline;margin-left:.6rem"
         data-confirm="Stop run #{{ run.id }}? The agent is cancelled; files written so far stay in the sandbox.">

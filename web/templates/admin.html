@@ -159,26 +159,28 @@
   </form>
   <form method="post" action="admin/runs/cleanup" style="margin-bottom:1rem"
         data-confirm="Remove sandboxes and uploaded files that no longer belong to any run?">
-    <button class="secondary" title="Deletes sandbox folders on the agent host and upload folders on the web host whose run no longer exists (e.g. deleted while the agent was unreachable).">Clean up orphaned files</button>
-    {% if cleaned_sandboxes is not none %}
-    <span style="color:var(--muted);margin-left:.6rem">Removed {{ cleaned_sandboxes }} sandbox(es), {{ cleaned_uploads }} upload folder(s).</span>
+    <button class="secondary" title="Deletes sandbox folders on the agent host and upload folders on the web host whose run no longer exists (e.g. deleted while the agent was unreachable). Also measures the disk usage of finished runs that don't have a size yet.">Clean up orphaned files</button>
+    {% if cleanup %}
+    <span style="color:var(--muted);margin-left:.6rem">Removed {{ cleanup.sandboxes }} sandbox(es), {{ cleanup.uploads }} upload folder(s){% if cleanup.measured %}; measured disk usage of {{ cleanup.measured }} older run(s){% endif %}.</span>
+    {% if cleanup.error %}<span class="err" style="margin-left:.6rem">{{ cleanup.error }}</span>{% endif %}
     {% endif %}
-    {% if cleanup_error %}<span class="err" style="margin-left:.6rem">{{ cleanup_error }}</span>{% endif %}
   </form>
   {% if runs %}
   <table>
-    <tr><th>#</th><th>Workflow</th><th>User</th><th>Status</th><th>Created</th><th></th></tr>
+    <tr><th>#</th><th>Workflow</th><th>User</th><th>Status</th><th>Created</th><th>Size</th><th></th></tr>
     {% for r in runs %}
     <tr>
       <td class="mono"><a href="runs/{{ r.id }}">#{{ r.id }}</a></td>
       <td>{{ r.wf }}</td><td>{{ r.who }}</td>
       <td><span class="status st-{{ r.status }}">{{ r.status }}</span></td>
       <td class="mono">{{ r.created_at }}</td>
+      <td class="mono" title="{{ r.disk_bytes ~ ' bytes' if r.disk_bytes is not none else 'not measured' }}">{{ r.disk_bytes|filesizeformat if r.disk_bytes is not none else '—' }}</td>
       <td><form method="post" action="admin/runs/{{ r.id }}/delete" style="display:inline"
                data-confirm="Delete run #{{ r.id }} and its files?"><button class="danger">Delete</button></form></td>
     </tr>
     {% endfor %}
   </table>
+  <p style="color:var(--muted)">{{ run_total }} run(s) using {{ run_bytes|filesizeformat }} of sandbox disk.</p>
   {% if run_total > runs|length %}<p style="color:var(--muted)">Showing the {{ runs|length }} most recent. Use purge to remove older ones.</p>{% endif %}
   {% else %}<p>No runs.</p>{% endif %}
 </section>

@@ -15,6 +15,12 @@ against a live query: no child process left). A stopped run reports nothing back
 already finished it, and its `status.json` says `"status": "stopped"`. If cancelling surfaces as
 an ordinary SDK exception instead of `CancelledError`, it is still treated as a stop.
 
+**Final report + disk usage:** `handle` records the outcome and sends it in a single report from
+its `finally`, after `status.json` is written. That report includes `disk_bytes`
+(`sandbox_bytes`: apparent size of every regular file, symlinks not counted), so the run page
+shows the size as soon as it sees the run finish. A user-stopped run reports only `disk_bytes`.
+A failed report is logged and never kills the poll loop.
+
 **status.json** (`worker.handle`): the worker times each run with a monotonic clock and, in a
 `finally` block, writes `status.json` into the run's sandbox — `{run_id, status, started_at,
 finished_at, total_seconds, files}` (plus `error` on failure). `total_seconds` is the total

@@ -75,7 +75,16 @@ Claude Agent SDK in a per-run sandbox.
   and uploads. A new admin sweep (`/admin/runs/cleanup`) uses a new agent `GET /sandboxes` to
   remove orphans. See cards/accounts-auth.md.
 
+- 2026-11-21 — **Run disk usage**: `runs.disk_bytes` (migration 010), reported by the agent in
+  its single final report (outcome + size together). `update_run` accepts it even after the run
+  is finished. Older runs are backfilled by the admin cleanup sweep, not by a migration, because
+  the sizes live on the agent host.
+
 ## Current state / handoff
+
+Runs show their **disk usage** (run page, Size column + total in `/runs` and admin). Covered by
+`agent/test_agent.py::test_sandbox_bytes` + final-report assertions, `web/test_smoke.py::test_stop_run`
+(disk_bytes accepted post-finish, rendered), `web/test_logic.py::test_admin_cleanup_orphans` (backfill).
 
 Runs can be **deleted** by their owner (run page / Runs list), and admins have **Clean up orphaned
 files**. Covered by `web/test_logic.py` (`test_user_deletes_own_run_with_cleanup`,

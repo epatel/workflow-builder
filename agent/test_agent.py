@@ -186,6 +186,8 @@ def test_handle_success(monkeypatch_result="summary", should_fail=False):
         assert "error" in statuses and web.reports[-1]["error"] == "boom"
     else:
         assert "done" in statuses and web.reports[-1]["result"] == "summary"
+    # the final report carries the sandbox size, measured after status.json was written
+    assert web.reports[-1]["disk_bytes"] == worker.sandbox_bytes(worker.SANDBOX_ROOT / "7") > 0
 
     # status.json is written to the sandbox with the run's total running time.
     import json
@@ -266,6 +268,7 @@ def test_handle_stop():
         worker.runner.run_workflow, worker.STOP_POLL_SECONDS = runner_orig, poll_orig
     assert cancelled == [True]
     assert [r for r in web.reports if "status" in r] == []      # web already finalized it
+    assert web.reports[-1].keys() == {"disk_bytes"}             # ...but still gets the size
     data = json.loads((worker.SANDBOX_ROOT / "8" / "status.json").read_text())
     assert data["status"] == "stopped" and data["error"] == "stopped by user"
 
@@ -282,6 +285,17 @@ def test_watch_for_stop_ignores_web_errors():
     assert asyncio.run(go()) == (False, "ok")
 
 
+def test_sandbox_bytes():
+    import tempfile
+    d = Path(tempfile.mkdtemp())
+    (d / "a.txt").write_bytes(b"x" * 100)
+    (d / "sub").mkdir()
+    (d / "sub" / "b.bin").write_bytes(b"y" * 23)
+    (d / "link").symlink_to(d / "a.txt")          # symlinks aren't counted twice
+    assert worker.sandbox_bytes(d) == 123
+    assert worker.sandbox_bytes(d / "missing") == 0
+
+
 if __name__ == "__main__":
     test_tools_config()
     test_compose_prompt()
@@ -293,5 +307,6 @@ if __name__ == "__main__":
     test_handle_success()                       # success path
     test_handle_success(should_fail=True)       # failure path reports error
     test_handle_stop()
+    test_sandbox_bytes()
     test_watch_for_stop_ignores_web_errors()
     print("OK")

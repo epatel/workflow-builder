@@ -559,6 +559,14 @@ def test_stop_run():
     assert tuple(st(rid)) == ("error", "stopped by user")
     assert client.get("/api/runs/999999", headers=AGENT).status_code == 404
 
+    # disk usage is bookkeeping: accepted even after the run finished, shown on the pages
+    client.post(f"/api/runs/{rid}", headers=AGENT, json={"disk_bytes": 2048})
+    assert conn.execute("SELECT disk_bytes FROM runs WHERE id=?", (rid,)).fetchone()[0] == 2048
+    assert "2.0 kB on disk" in client.get(f"/runs/{rid}").text
+    assert "2.0 kB" in client.get("/runs").text and "2.0 kB" in client.get("/admin").text
+    assert client.post(f"/api/runs/{rid}", headers=AGENT,
+                       json={"disk_bytes": "lots"}).status_code == 400
+
     # stopping a finished run is a no-op
     client.post(f"/runs/{rid}/stop", follow_redirects=False)
     assert tuple(st(rid)) == ("error", "stopped by user")

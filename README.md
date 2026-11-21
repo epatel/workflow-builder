@@ -80,7 +80,10 @@ the worker cancels the agent within a few seconds (`STOP_POLL_SECONDS`, default 
 far stay in the sandbox. A finished (or still-pending) run can be **deleted** by its owner from
 the run page or the Runs list; this removes its log, uploaded inputs and sandbox. Stop a running
 run before deleting it. Admins also get purge-by-age and **Clean up orphaned files**, which
-sweeps sandboxes/uploads left without a run (e.g. deleted while the agent host was down).
+sweeps sandboxes/uploads left without a run (e.g. deleted while the agent host was down). Each
+finished run shows its **disk usage** (sandbox size, reported by the agent at the end of the run) on
+the run page and as a Size column in the run lists, with a total, so it's clear what deleting frees.
+The cleanup sweep also measures older runs that predate this.
 
 **Chaining:** an eval prompt can call `next_workflow("Workflow name", "handover note", inputs)` to
 hand off to another workflow, which runs next **in the same sandbox** (it sees every file produced so

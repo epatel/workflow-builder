@@ -229,18 +229,18 @@ def reset(request: Request, token: str = Form(...), password: str = Form(...)):
 # ---------- admin ----------
 
 @app.get("/admin", response_class=HTMLResponse)
-def admin(request: Request, cleaned_sandboxes: int | None = None, cleaned_uploads: int | None = None,
-          cleanup_error: str = "", user=Depends(require_role("admin"))):
+def admin(request: Request, user=Depends(require_role("admin"))):
     conn = connect()
     try:
         users = conn.execute("SELECT * FROM users ORDER BY id").fetchall()
         invites = conn.execute("SELECT * FROM invites ORDER BY id DESC").fetchall()
         sets = conn.execute("SELECT * FROM sets ORDER BY name").fetchall()
         runs = conn.execute(
-            "SELECT r.id, r.status, r.created_at, w.name AS wf, u.email AS who "
+            "SELECT r.id, r.status, r.created_at, r.disk_bytes, w.name AS wf, u.email AS who "
             "FROM runs r JOIN workflows w ON w.id=r.workflow_id JOIN users u ON u.id=r.user_id "
             "ORDER BY r.id DESC LIMIT 100").fetchall()
         run_total = conn.execute("SELECT COUNT(*) c FROM runs").fetchone()["c"]
+        run_bytes = conn.execute("SELECT COALESCE(SUM(disk_bytes), 0) t FROM runs").fetchone()["t"]
         # surface each tool's url for the list view; the full config lives in the edit dialog
         mcp_tools = [dict(t) | {"url": json.loads(t["config"]).get("url", "")}
                      for t in conn.execute("SELECT * FROM mcp_tools ORDER BY name")]
@@ -255,9 +255,8 @@ def admin(request: Request, cleaned_sandboxes: int | None = None, cleaned_upload
     finally:
         conn.close()
     return page(request, "admin.html", user=user, users=users, invites=invites, sets=sets,
-                runs=runs, run_total=run_total, user_sets=user_sets, invite_sets=invite_sets,
-                set_name=set_name, mcp_tools=mcp_tools, cleaned_sandboxes=cleaned_sandboxes,
-                cleaned_uploads=cleaned_uploads, cleanup_error=cleanup_error)
+                runs=runs, run_total=run_total, run_bytes=run_bytes, user_sets=user_sets, invite_sets=invite_sets,
+                set_name=set_name, mcp_tools=mcp_tools, cleanup=_cleanup_report(request))
 
 
 def _validate_tool_config(config: str) -> str:
@@ -455,25 +454,68 @@ def _runs_cascading_from_user(conn, uid: int) -> list[int]:
 
 def _cleanup_orphans(conn) -> dict:
     """Remove sandboxes (agent host) and upload dirs (web host) whose run row is gone —
-    left behind by deletes while the agent was unreachable, or older cascades."""
+    left behind by deletes while the agent was unreachable, or older cascades. Also fills
+    in disk_bytes for finished runs that have a sandbox but no size (runs from before the
+    agent reported it), from the agent's file listing."""
     live = {r["id"] for r in conn.execute("SELECT id FROM runs")}
-    removed = {"sandboxes": 0, "uploads": 0, "agent_error": None}
-    if UPLOADS.is_dir():
-        for d in UPLOADS.iterdir():
-            if d.is_dir() and d.name.isdigit() and int(d.name) not in live:
-                shutil.rmtree(d, ignore_errors=True)
-                removed["uploads"] += 1
-    if AGENT_FILES_URL:
-        try:
-            resp = _agent_files("GET", "/sandboxes")
-            resp.raise_for_status()
-            for rid in resp.json().get("run_ids", []):
-                if rid not in live:
-                    _agent_files("DELETE", f"/sandbox/{int(rid)}")
-                    removed["sandboxes"] += 1
-        except Exception as e:
-            removed["agent_error"] = f"could not reach the agent host: {e}"
+    unmeasured = {r["id"] for r in conn.execute(
+        "SELECT id FROM runs WHERE disk_bytes IS NULL AND status IN ('done','error')")}
+    removed = {"sandboxes": 0, "uploads": 0, "measured": 0, "agent_error": None}
+    removed["uploads"] = _remove_orphan_uploads(live)
+    if not AGENT_FILES_URL:
+        return removed
+    try:
+        _sweep_agent_sandboxes(conn, live, unmeasured, removed)
+    except Exception as e:
+        removed["agent_error"] = f"could not reach the agent host: {e}"
     return removed
+
+
+def _is_run_dir(d: Path) -> bool:
+    return d.is_dir() and d.name.isdigit()
+
+
+def _remove_orphan_uploads(live: set) -> int:
+    """Delete numeric uploads/<id>/ dirs with no run row; returns how many."""
+    if not UPLOADS.is_dir():
+        return 0
+    orphans = [d for d in UPLOADS.iterdir() if _is_run_dir(d) and int(d.name) not in live]
+    for d in orphans:
+        shutil.rmtree(d, ignore_errors=True)
+    return len(orphans)
+
+
+def _sweep_agent_sandboxes(conn, live: set, unmeasured: set, removed: dict):
+    """Delete agent sandboxes with no run row; measure live ones missing disk_bytes."""
+    resp = _agent_files("GET", "/sandboxes")
+    resp.raise_for_status()
+    for rid in resp.json().get("run_ids", []):
+        if rid not in live:
+            _agent_files("DELETE", f"/sandbox/{int(rid)}")
+            removed["sandboxes"] += 1
+        elif rid in unmeasured and _measure_sandbox(conn, rid):
+            removed["measured"] += 1
+
+
+def _measure_sandbox(conn, rid: int) -> bool:
+    """Store a run's disk_bytes from the agent's file listing; False if it has none."""
+    listing = _agent_files("GET", f"/sandbox/{int(rid)}")
+    if listing.status_code != 200:
+        return False
+    size = sum(f.get("size", 0) for f in listing.json().get("files", []))
+    conn.execute("UPDATE runs SET disk_bytes=? WHERE id=?", (size, rid))
+    conn.commit()
+    return True
+
+
+def _cleanup_report(request) -> dict | None:
+    """The cleanup result admin_cleanup_runs redirected with, or None if not just run."""
+    q = request.query_params
+    if "cleaned_sandboxes" not in q:
+        return None
+    num = lambda k: int(q.get(k, "0")) if q.get(k, "0").isdigit() else 0
+    return {"sandboxes": num("cleaned_sandboxes"), "uploads": num("cleaned_uploads"),
+            "measured": num("measured"), "error": q.get("cleanup_error", "")}
 
 
 @app.post("/admin/runs/cleanup")
@@ -483,7 +525,8 @@ def admin_cleanup_runs(request: Request, user=Depends(require_role("admin"))):
         r = _cleanup_orphans(conn)
     finally:
         conn.close()
-    q = f"?cleaned_sandboxes={r['sandboxes']}&cleaned_uploads={r['uploads']}"
+    q = (f"?cleaned_sandboxes={r['sandboxes']}&cleaned_uploads={r['uploads']}"
+         f"&measured={r['measured']}")
     if r["agent_error"]:
         q += "&cleanup_error=" + quote(r["agent_error"])
     return redirect(request, "/admin" + q)
@@ -1080,18 +1123,21 @@ def list_runs(request: Request, user=Depends(current_user)):
     is_admin = user["role"] == "admin"
     conn = connect()
     try:
-        sql = ("SELECT r.id, r.status, r.created_at, w.name AS wf, u.email AS who "
+        sql = ("SELECT r.id, r.status, r.created_at, r.disk_bytes, w.name AS wf, u.email AS who "
                "FROM runs r JOIN workflows w ON w.id=r.workflow_id "
                "JOIN users u ON u.id=r.user_id ")
         params = ()
         if not is_admin:
             sql += "WHERE r.user_id=? "
             params = (user["id"],)
-        sql += "ORDER BY r.id DESC LIMIT 100"
-        runs = conn.execute(sql, params).fetchall()
+        runs = conn.execute(sql + "ORDER BY r.id DESC LIMIT 100", params).fetchall()
+        total_bytes = conn.execute(
+            "SELECT COALESCE(SUM(disk_bytes), 0) t FROM runs" + ("" if is_admin else " WHERE user_id=?"),
+            params).fetchone()["t"]
     finally:
         conn.close()
-    return page(request, "runs.html", user=user, runs=runs, is_admin=is_admin)
+    return page(request, "runs.html", user=user, runs=runs, is_admin=is_admin,
+                total_bytes=total_bytes)
 
 
 @app.post("/workflows/{wid}/run")
@@ -1520,22 +1566,38 @@ def agent_run_status(rid: int, authorization: str | None = Header(None)):
     return {"status": r["status"]}
 
 
-@app.post("/api/runs/{rid}")
-def update_run(rid: int, payload: dict, authorization: str | None = Header(None)):
-    """Agent reports progress/result. Accepts status, result, error, sandbox_path.
-    A run that already finished (e.g. stopped by the user) keeps its outcome: a late
-    status/result/error from the worker is ignored."""
-    _check_agent(authorization)
-    fields = {k: payload[k] for k in ("status", "result", "error", "sandbox_path") if k in payload}
+_RUN_UPDATE_FIELDS = ("status", "result", "error", "sandbox_path", "disk_bytes")
+_BOOKKEEPING_FIELDS = ("sandbox_path", "disk_bytes")   # still accepted once a run has finished
+
+
+def _run_update_fields(payload: dict) -> dict:
+    """The updatable fields present in an agent report, validated; 400 if none/bad."""
+    fields = {k: payload[k] for k in _RUN_UPDATE_FIELDS if k in payload}
     if not fields:
         raise HTTPException(400, "Nothing to update")
+    if "disk_bytes" in fields:
+        try:
+            fields["disk_bytes"] = max(0, int(fields["disk_bytes"]))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "disk_bytes must be an integer")
+    return fields
+
+
+@app.post("/api/runs/{rid}")
+def update_run(rid: int, payload: dict, authorization: str | None = Header(None)):
+    """Agent reports progress/result. Accepts status, result, error, sandbox_path, disk_bytes.
+    A run that already finished (e.g. stopped by the user) keeps its outcome: a late
+    status/result/error from the worker is ignored. sandbox_path and disk_bytes are
+    bookkeeping and still apply — disk_bytes is reported after the outcome, at the very end."""
+    _check_agent(authorization)
+    fields = _run_update_fields(payload)
     conn = connect()
     try:
         r = conn.execute("SELECT status FROM runs WHERE id=?", (rid,)).fetchone()
         if r is not None and r["status"] in ("done", "error"):
-            fields = {k: v for k, v in fields.items() if k == "sandbox_path"}
-            if not fields:
-                return {"ok": True, "ignored": True}
+            fields = {k: v for k, v in fields.items() if k in _BOOKKEEPING_FIELDS}
+        if not fields:
+            return {"ok": True, "ignored": True}
         sets = ", ".join(f"{k}=?" for k in fields) + ", updated_at=datetime('now')"
         conn.execute(f"UPDATE runs SET {sets} WHERE id=?", (*fields.values(), rid))
         conn.commit()

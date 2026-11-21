@@ -39,9 +39,12 @@ shared secret: `Authorization: Bearer <AGENT_TOKEN>`, identical in `web/.env` an
   `GET /api/workflows/resolve` (chaining).
 - `GET /api/runs/{id}` — `{status}` (404 if gone). The worker polls it while running a job; any
   status other than `running` means **stop** (see Stopping below).
-- `POST /api/runs/{id}` — updates any of `status`, `result`, `error`, `sandbox_path`. Once a run is
-  `done`/`error` its outcome is final: a late `status`/`result`/`error` is ignored (only
-  `sandbox_path` still applies), so a worker finishing after a Stop can't overwrite it.
+- `POST /api/runs/{id}` — updates any of `status`, `result`, `error`, `sandbox_path`, `disk_bytes`.
+  Once a run is `done`/`error` its outcome is final: a late `status`/`result`/`error` is ignored
+  (`sandbox_path` and `disk_bytes` still apply), so a worker finishing after a Stop can't overwrite it.
+  `disk_bytes` (migration 010, NULL = unknown) is the run's sandbox size; it's shown as a Size column
+  in `/runs` and the admin runs table, as "N on disk" on the run page, and as a total for the
+  visible scope.
 - `POST /api/runs/{id}/log` — appends a live progress message (`run_logs` table). The agent calls
   this via its `log_message` SDK tool while a workflow runs.
 - `GET /api/runs/{id}/files/{name}` — streams an uploaded input file so the agent can pull it into

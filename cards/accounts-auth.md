@@ -56,4 +56,6 @@ other people's runs) before the row goes, so their files aren't orphaned.
 that no run row points to anymore: numeric `uploads/<id>/` dirs on the web host, and sandboxes
 on the agent host (listed via `GET /sandboxes`). These come from deletes made while the agent
 was unreachable, or from user deletes before this fix. If the agent is unreachable, that's
-reported on the admin page and upload cleanup still runs.
+reported on the admin page and upload cleanup still runs. The same sweep **measures** finished runs
+that have a sandbox but no `disk_bytes` yet (runs from before the agent reported sizes), by summing
+the agent's `GET /sandbox/{id}` listing.

@@ -80,6 +80,14 @@ Claude Agent SDK in a per-run sandbox.
   is finished. Older runs are backfilled by the admin cleanup sweep, not by a migration, because
   the sizes live on the agent host.
 
+- 2026-11-21 — Agentic setup refreshed to ai.memention.net/setup **2026-11-14.4** (record:
+  `.claude/agent-setup.json`). Added: Standing Defaults card (copied verbatim, hash in the record)
+  plus a `migrate()` guard that refuses a DB newer than the code; skills `review-agentic-setup`,
+  `double-check`, `minimal-repro` (agent-skills `v2026.11.14`, in `.claude/skills/`); Code Health
+  in the **global form**, i.e. `aihealth` on PATH pinned to v0.3.1 / `ff7f011a`, with `.mcp.json` +
+  guarded PostToolUse/Stop hooks. Known Stack declined. Baseline health 7.53 (worst: `web/app.py`
+  5.80); refactoring candidates only, nothing changed for it.
+
 ## Current state / handoff
 
 Runs show their **disk usage** (run page, Size column + total in `/runs` and admin). Covered by

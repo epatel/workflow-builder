@@ -7,6 +7,21 @@
           { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-browser-popups.py" }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "command -v aihealth >/dev/null 2>&1 && aihealth hook post-edit || true" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "command -v aihealth >/dev/null 2>&1 && aihealth hook stop || true" }
+        ]
+      }
     ]
   }
 }

@@ -55,6 +55,13 @@ ssh rpi6 'screen -S workflow -X quit; sleep 2; cd ~/workflow-web && screen -dmS 
 `.env` files live on the hosts and are never synced (deploy excludes `.env`/`*.db`/`venv`/sandboxes).
 `home` needs the Claude Code CLI logged in (no `ANTHROPIC_API_KEY`).
 
+## Code health
+
+- Before committing, run `aihealth delta` and fix new or worsened smells it reports in code you
+  touched (exit code 1 = health degraded). `aihealth scan .` gives an overview of the codebase.
+- Uses a global `aihealth` on PATH, pinned to release v0.3.1 (commit `ff7f011a`); the hooks and MCP
+  server do nothing without it. Install: `uv tool install "git+https://github.com/epatel/ai-health@ff7f011ae6d01ed4f44a18a617541167dc070725"  # v0.3.1`
+
 ## Context cards
 
 Load a card when the situation matches its trigger.
@@ -67,7 +74,9 @@ Load a card when the situation matches its trigger.
 - [decision-cli-auth](cards/decision-cli-auth.md) — when anything involves the agent's API key or authentication, or `ANTHROPIC_API_KEY` comes up.
 - [decision-sqlite-migrations](cards/decision-sqlite-migrations.md) — when changing the database schema or wondering how migrations work here.
 - [decision-puppeteer-on-lan](cards/decision-puppeteer-on-lan.md) — when wiring browser/MCP tools, considering the hosted Agents API, or thinking about exposing puppeteer.
+- [standing-defaults](cards/standing-defaults.md) — before installing a Python dependency, creating a venv, or adding/changing a migration or the migration runner.
 
-When a change adds non-obvious logic, settles an architectural choice, or makes a card above wrong,
-update or add the card in the same change and keep this index in sync — and the README too, so
-neither drifts from the code. Cards stay self-contained: no card links to another.
+When you commit a change that adds non-obvious logic, settles an architectural choice, or makes a
+card above wrong, update or add the card in that commit and keep this index in sync — and the README
+too, so neither drifts from the code. Proposed diffs and answers need no card edits. Cards stay
+self-contained: no card links to another.

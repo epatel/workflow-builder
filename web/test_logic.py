@@ -307,6 +307,27 @@ def test_admin_cleanup_orphans():
         conn.close()
 
 
+def test_migrate_refuses_newer_database():
+    """A DB whose user_version is past the last migration file was written by newer code
+    (e.g. a rolled-back deploy): migrate() must refuse instead of running against it."""
+    import sqlite3
+    import db
+    path = tempfile.mktemp(suffix=".db")
+    sqlite3.connect(path).execute("PRAGMA user_version = 999")
+    orig = db.DB_PATH
+    db.DB_PATH = path
+    try:
+        try:
+            db.migrate()
+        except RuntimeError as e:
+            assert "999" in str(e) and "newer code" in str(e)
+        else:
+            raise AssertionError("migrate() accepted a newer database")
+    finally:
+        db.DB_PATH = orig
+    assert db.migrate() >= 10          # the real test DB is unaffected
+
+
 if __name__ == "__main__":
     test_save_workflow_sets_authorization()
     test_admin_save_workflow_sets_is_unrestricted()
@@ -317,4 +338,5 @@ if __name__ == "__main__":
     test_user_deletes_own_run_with_cleanup()
     test_admin_user_delete_cleans_cascaded_run_files()
     test_admin_cleanup_orphans()
+    test_migrate_refuses_newer_database()
     print("OK")

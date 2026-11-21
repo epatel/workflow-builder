@@ -1,15 +1,40 @@
 {
   "source": "https://ai.memention.net/setup",
-  "version": "2026-10-15",
-  "updated": "2026-10-15",
-  "applied": ["context-cards", "project-plan", "hooks-over-prose"],
+  "version": "2026-11-14.4",
+  "updated": "2026-11-21",
+  "applied": [
+    "context-cards",
+    "project-plan",
+    "hooks-over-prose",
+    "standing-defaults",
+    "code-health",
+    "skill:review-agentic-setup",
+    "skill:double-check",
+    "skill:minimal-repro"
+  ],
   "declined": [
     "feature-first",
     "feature-first-advanced",
     "two-tier",
+    "known-stack",
     "plugin:example-skills@anthropic-agent-skills",
     "plugin:document-skills@anthropic-agent-skills",
     "plugin:claude-api@anthropic-agent-skills"
   ],
-  "copied": {}
+  "copied": {
+    "cards/standing-defaults.md": {
+      "pattern": "standing-defaults",
+      "sha256": "8539dbdf33ba63de33d1af1f02f6bbfd53d92178ccfbf26b1a88a20e886f7b8a"
+    }
+  },
+  "skills_release": "v2026.11.14",
+  "tools": {
+    "python": { "pattern": "hooks-over-prose", "min": "3.8", "form": "existing" },
+    "aihealth": {
+      "pattern": "code-health",
+      "min": "0.3.1",
+      "pin": "ff7f011ae6d01ed4f44a18a617541167dc070725",
+      "form": "existing"
+    }
+  }
 }

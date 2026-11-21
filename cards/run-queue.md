@@ -63,8 +63,9 @@ via `_owned_run`) flips a `pending`/`running` run straight to `status='error'`,
 `error='stopped by user'` and logs `⏹ stopped by <email>`. No new status value: `runs.status` has a
 CHECK constraint, and rebuilding the table in SQLite would cascade-delete `run_logs`. The web side
 finishes the run itself, so Stop works even if the agent is down. A pending run is then never
-claimed; for a running one, the worker's watcher sees the status change and cancels the job (see
-cards/agent-runner.md). Stopping a finished run does nothing.
+claimed; for a running one, the agent worker polls `GET /api/runs/{id}` every few seconds while it
+works, sees the run is no longer `running`, and cancels the job (which also ends the Claude CLI
+process). Stopping a finished run does nothing.
 
 **Listing runs:** `GET /runs` (`list_runs`) shows a run history table — regular users see **only
 their own** runs (`WHERE r.user_id=?`), admins see everyone's (with a "By" column). Linked from the

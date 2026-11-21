@@ -20,6 +20,13 @@ def migrate() -> int:
     conn = connect()
     try:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
+        latest = max((int(f.name[:3]) for f in files), default=0)
+        if version > latest:
+            # Written by newer code (e.g. a rolled-back deploy): refuse rather than run old
+            # code against a schema it doesn't know.
+            raise RuntimeError(f"database {DB_PATH} is at schema version {version}, but this "
+                               f"code only knows migrations up to {latest}: it was written by "
+                               "newer code")
         for f in files:
             n = int(f.name[:3])
             if n <= version:

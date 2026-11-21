@@ -496,6 +496,36 @@ def test_assets():
     assert [a["name"] for a in appmod._workflow_assets(wid)] == ["data.csv"]
 
 
+def test_render_description():
+    r = appmod.render_description
+    assert r("") == "" and r("   ") == ""
+    html = r("See **docs** at [the spec](https://example.com/spec).")
+    assert "<strong>docs</strong>" in html
+    assert 'href="https://example.com/spec"' in html and 'target="_blank"' in html
+    assert 'rel="noopener noreferrer"' in html
+    # raw HTML is shown as text, not injected
+    html = r("<script>alert(1)</script>\n\nhi <img src=x onerror=alert(1)>")
+    assert "<script>" not in html and "<img" not in html and "&lt;script&gt;" in html
+    # unsafe URL schemes lose their href; relative and mailto links survive
+    assert "javascript:" not in r("[x](javascript:alert(1))")
+    assert "data:" not in r("![x](data:text/html;base64,AAAA)")
+    assert 'href="runs/3"' in r("[run](runs/3)") and 'href="mailto:a@b.c"' in r("[m](mailto:a@b.c)")
+
+
+def test_description():
+    # Runs after test_flow: admin (a@x.com) is logged in via module-level `client`.
+    r = client.post("/workflows", data={"name": "Described", "action_prompt": "x",
+                    "description": "Uses [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110)."},
+                    follow_redirects=False)
+    wid = int(r.headers["location"].split("/")[-1])
+    page = client.get(f"/workflows/{wid}").text
+    assert 'class="wf-description"' in page and 'href="https://www.rfc-editor.org/rfc/rfc9110"' in page
+    assert "Uses [RFC 9110]" in client.get(f"/workflows/{wid}/edit").text   # raw source in the form
+    client.post(f"/workflows/{wid}", data={"name": "Described", "action_prompt": "x",
+                "description": ""}, follow_redirects=False)
+    assert 'class="wf-description"' not in client.get(f"/workflows/{wid}").text
+
+
 if __name__ == "__main__":
     test_classify()
     test_highlight()
@@ -505,3 +535,5 @@ if __name__ == "__main__":
     test_mcp_tools()
     test_endpoints()
     test_assets()
+    test_render_description()
+    test_description()

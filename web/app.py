@@ -598,6 +598,39 @@ def list_workflows(request: Request, user=Depends(current_user)):
     return page(request, "workflows.html", user=user, workflows=rows, wf_sets=wf_sets)
 
 
+class _SafeLinks(md.treeprocessors.Treeprocessor):
+    """Drop non-http(s)/mailto/relative URLs; open external links in a new tab."""
+    _OK = re.compile(r"^(https?:|mailto:|#|/|\.{0,2}/|[^:/?#]*([/?#]|$))", re.I)
+
+    def run(self, root):
+        for el in root.iter():
+            for attr in ("href", "src"):
+                url = el.get(attr)
+                if url is None:
+                    continue
+                if not self._OK.match(url.strip()):
+                    del el.attrib[attr]
+                elif attr == "href" and re.match(r"^https?:", url.strip(), re.I):
+                    el.set("target", "_blank")
+                    el.set("rel", "noopener noreferrer")
+
+
+class _SafeMarkdown(md.extensions.Extension):
+    """Markdown with raw HTML rendered as escaped text and unsafe URL schemes stripped,
+    so user-written notes can be rendered inline in the app page."""
+    def extendMarkdown(self, m):
+        m.preprocessors.deregister("html_block")
+        m.inlinePatterns.deregister("html")
+        m.treeprocessors.register(_SafeLinks(m), "safe_links", 0)
+
+
+def render_description(text: str) -> str:
+    """Workflow description (user markdown) -> HTML safe to drop into a page."""
+    if not (text or "").strip():
+        return ""
+    return md.markdown(text, extensions=["fenced_code", "tables", "sane_lists", _SafeMarkdown()])
+
+
 @app.get("/workflows/new", response_class=HTMLResponse)
 def new_workflow(request: Request, user=Depends(require_role("editor"))):
     conn = connect()
@@ -659,7 +692,7 @@ def _validate_inputs_spec(spec: str):
 def create_workflow(request: Request, name: str = Form(...), sets: list[int] = Form([]),
                     inputs_spec: str = Form("[]"), action_prompt: str = Form(""),
                     eval_prompt: str = Form(""), tools: str = Form("[]"), model: str = Form(""),
-                    user=Depends(require_role("editor"))):
+                    description: str = Form(""), user=Depends(require_role("editor"))):
     if model not in _MODEL_VALUES:
         model = ""
     _validate_tools(tools)
@@ -667,9 +700,9 @@ def create_workflow(request: Request, name: str = Form(...), sets: list[int] = F
     conn = connect()
     try:
         cur = conn.execute(
-            "INSERT INTO workflows (owner_id,name,inputs_spec,action_prompt,eval_prompt,tools,model)"
-            " VALUES (?,?,?,?,?,?,?)",
-            (user["id"], name, inputs_spec, action_prompt, eval_prompt, tools, model))
+            "INSERT INTO workflows (owner_id,name,inputs_spec,action_prompt,eval_prompt,tools,model,"
+            "description) VALUES (?,?,?,?,?,?,?,?)",
+            (user["id"], name, inputs_spec, action_prompt, eval_prompt, tools, model, description))
         _save_workflow_sets(conn, cur.lastrowid, set(sets), user)
         conn.commit()
         return redirect(request, f"/workflows/{cur.lastrowid}")
@@ -709,7 +742,7 @@ def view_workflow(request: Request, wid: int, user=Depends(current_user)):
         conn.close()
     return page(request, "workflow_view.html", user=user, wf=w,
                 inputs=json.loads(w["inputs_spec"] or "[]"), runs=runs, set_names=set_names,
-                can_edit=can_edit)
+                can_edit=can_edit, description_html=render_description(w["description"]))
 
 
 @app.get("/workflows/{wid}/edit", response_class=HTMLResponse)
@@ -739,7 +772,7 @@ def edit_workflow(request: Request, wid: int, ep_error: str = "",
 def update_workflow(request: Request, wid: int, name: str = Form(...),
                     sets: list[int] = Form([]), inputs_spec: str = Form("[]"),
                     action_prompt: str = Form(""), eval_prompt: str = Form(""),
-                    tools: str = Form("[]"), model: str = Form(""),
+                    tools: str = Form("[]"), model: str = Form(""), description: str = Form(""),
                     user=Depends(require_role("editor"))):
     if model not in _MODEL_VALUES:
         model = ""
@@ -749,8 +782,9 @@ def update_workflow(request: Request, wid: int, name: str = Form(...),
     try:
         _get_workflow(conn, wid, user, for_edit=True)
         conn.execute(
-            "UPDATE workflows SET name=?,inputs_spec=?,action_prompt=?,eval_prompt=?,tools=?,model=? WHERE id=?",
-            (name, inputs_spec, action_prompt, eval_prompt, tools, model, wid))
+            "UPDATE workflows SET name=?,inputs_spec=?,action_prompt=?,eval_prompt=?,tools=?,model=?,"
+            "description=? WHERE id=?",
+            (name, inputs_spec, action_prompt, eval_prompt, tools, model, description, wid))
         _save_workflow_sets(conn, wid, set(sets), user)
         conn.commit()
         return redirect(request, f"/workflows/{wid}")

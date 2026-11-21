@@ -6,6 +6,11 @@
   <input name="name" value="{{ wf.name if wf else '' }}" required
          title="Shown in the workflow list. Pick something the people you share it with will recognize.">
 
+  {% set desc_help = 'Notes for people reading this workflow later: what it does, why, and references. Markdown is supported, e.g. **bold**, lists, and [link text](https://example.com). Shown on the workflow page only — never sent to the agent.' %}
+  <label title='{{ desc_help }}'>Description (markdown, optional — not sent to the agent)</label>
+  <textarea name="description" rows="5" placeholder="What this workflow is for, references, [links](https://…)"
+            title='{{ desc_help }}'>{{ wf.description if wf else '' }}</textarea>
+
   <label>Sets (who can see &amp; run this) — none = private to you</label>
   {% if sets %}
     {% for s in sets %}

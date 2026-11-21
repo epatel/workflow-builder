@@ -5,6 +5,10 @@
    · model: {{ wf.model or 'account default' }}
    {% if can_edit %} · <a href="workflows/{{ wf.id }}/edit">edit</a>{% endif %}</p>
 
+{% if description_html %}
+<div class="wf-description">{{ description_html | safe }}</div>
+{% endif %}
+
 <h2>Run it</h2>
 <form method="post" action="workflows/{{ wf.id }}/run" enctype="multipart/form-data">
   {% for f in inputs %}

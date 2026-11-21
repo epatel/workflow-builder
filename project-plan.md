@@ -57,7 +57,17 @@ Claude Agent SDK in a per-run sandbox.
   along in the claimed workflow def; the agent fetches bytes per step and never overwrites an existing
   sandbox file (in a chain, produced work beats a later step's asset). Uploads replace same-named assets.
 
+- 2026-11-21 — Workflow **description** (`workflows.description`, migration 009): markdown notes
+  for people, rendered by `render_description` *inline* in `workflow_view.html` — not in the
+  sandboxed iframe that results use. Safe because raw HTML is turned off (`html_block`/`html`
+  processors deregistered, so it shows as escaped text) and a treeprocessor removes every
+  href/src that isn't http(s)/mailto/relative. Never sent into a prompt.
+
 ## Current state / handoff
+
+Workflows now have an optional markdown **description** (edit form, under Name) shown at the top
+of the workflow page, with links. Covered by `web/test_smoke.py::test_render_description` (XSS /
+URL-scheme cases) and `::test_description` (save → render → clear).
 
 Workflows can now carry **assets**: files uploaded on the edit page (Assets section) that the agent
 copies into the sandbox root before each step runs. Stored on disk at `web/assets/<wid>/` (no

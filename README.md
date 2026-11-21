@@ -54,6 +54,11 @@ server surfaces in the admin page rather than half-way through someone's run. Th
 has the same check as **Test tools**: it probes every entry in the Tools box — registered names and
 inline server dicts alike — against the text as typed, so you can check it before saving.
 
+A workflow can have a **description** — markdown notes (purpose, references, links) shown at the
+top of its page for whoever looks at it later. It's for people only and is never put in a prompt.
+It renders inline in the app page, so raw HTML shows as plain text and only http(s), mailto and
+relative links keep their URL (external links open in a new tab).
+
 A saved workflow can also carry **assets** — files uploaded on its edit page (templates, reference
 data, scripts…) that are copied into the sandbox root before each run starts. They're stored on the
 web host under `ASSETS_DIR/<workflow_id>/` (default `web/assets/`) and shipped to the agent by name
